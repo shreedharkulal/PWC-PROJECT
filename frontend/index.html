@@ -1,0 +1,32 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PWC Project</title>
+</head>
+<body>
+  <h1>Welcome to PWC Project</h1>
+  <p>Frontend application</p>
+
+  <button onclick="getMessage()">Call Backend</button>
+  <p id="message"></p>
+
+  <script>
+    async function getMessage() {
+      try {
+        const response = await fetch(
+          "http://localhost:3000/api/message"
+        );
+        const data = await response.json();
+        document.getElementById("message").textContent =
+          data.message;
+      } catch {
+        document.getElementById("message").textContent =
+          "Backend is not running!";
+      }
+    }
+  </script>
+</body>
+</html>
