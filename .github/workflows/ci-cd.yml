@@ -97,24 +97,33 @@ jobs:
         github.ref == 'refs/heads/develop' ||
         github.ref == 'refs/heads/main' ||
         github.event_name == 'workflow_dispatch'
-      ) &&
-      secrets.AZURE_CLIENT_ID != '' &&
-      secrets.AZURE_TENANT_ID != '' &&
-      secrets.AZURE_SUBSCRIPTION_ID != '' &&
-      vars.ACR_NAME != '' &&
-      vars.ACR_LOGIN_SERVER != ''
+      )
 
     steps:
+      - name: Check Azure configuration
+        id: azure_check
+        shell: bash
+        run: |
+          if [ -z "${{ secrets.AZURE_CLIENT_ID }}" ] || [ -z "${{ secrets.AZURE_TENANT_ID }}" ] || [ -z "${{ secrets.AZURE_SUBSCRIPTION_ID }}" ] || [ -z "${{ vars.ACR_NAME }}" ] || [ -z "${{ vars.ACR_LOGIN_SERVER }}" ]; then
+            echo "azure_ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "azure_ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout
+        if: steps.azure_check.outputs.azure_ready == 'true'
         uses: actions/checkout@v4
 
       - name: Build backend image for registry
+        if: steps.azure_check.outputs.azure_ready == 'true'
         run: docker build -t "${{ vars.ACR_LOGIN_SERVER }}/pwc-project-backend:${{ env.IMAGE_TAG }}" ./backend
 
       - name: Build frontend image for registry
+        if: steps.azure_check.outputs.azure_ready == 'true'
         run: docker build -t "${{ vars.ACR_LOGIN_SERVER }}/pwc-project-frontend:${{ env.IMAGE_TAG }}" ./frontend
 
       - name: Azure login
+        if: steps.azure_check.outputs.azure_ready == 'true'
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -123,10 +132,13 @@ jobs:
           allow-no-subscriptions: true
 
       - name: Login to Azure Container Registry
+        if: steps.azure_check.outputs.azure_ready == 'true'
         run: az acr login --name "${{ vars.ACR_NAME }}"
 
       - name: Push backend image
+        if: steps.azure_check.outputs.azure_ready == 'true'
         run: docker push "${{ vars.ACR_LOGIN_SERVER }}/pwc-project-backend:${{ env.IMAGE_TAG }}"
 
       - name: Push frontend image
+        if: steps.azure_check.outputs.azure_ready == 'true'
         run: docker push "${{ vars.ACR_LOGIN_SERVER }}/pwc-project-frontend:${{ env.IMAGE_TAG }}"
