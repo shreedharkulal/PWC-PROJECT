@@ -83,7 +83,6 @@ jobs:
     needs: [precheck, code-quality]
     if: ${{ needs.precheck.outputs.sonar_enabled == 'true' }}
     runs-on: ubuntu-24.04
-    continue-on-error: true
 
     steps:
       - name: Checkout
