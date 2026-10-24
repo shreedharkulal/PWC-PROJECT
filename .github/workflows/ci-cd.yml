@@ -34,12 +34,14 @@ jobs:
         id: check
         shell: bash
         run: |
+          # Sonar config
           if [[ -n "${{ secrets.SONAR_TOKEN }}" && -n "${{ vars.SONAR_HOST_URL }}" && -n "${{ vars.SONAR_PROJECT_KEY }}" ]]; then
             echo "sonar_enabled=true" >> "$GITHUB_OUTPUT"
           else
             echo "sonar_enabled=false" >> "$GITHUB_OUTPUT"
           fi
 
+          # Azure + ACR config
           if [[ -n "${{ secrets.AZURE_CLIENT_ID }}" && -n "${{ secrets.AZURE_TENANT_ID }}" && -n "${{ secrets.AZURE_SUBSCRIPTION_ID }}" && -n "${{ vars.ACR_NAME }}" && -n "${{ vars.ACR_LOGIN_SERVER }}" ]]; then
             echo "azure_ready=true" >> "$GITHUB_OUTPUT"
           else
@@ -79,7 +81,12 @@ jobs:
   sonar:
     name: SonarQube Analysis
     needs: [precheck, code-quality]
-    if: needs.precheck.outputs.sonar_enabled == 'true'
+    if: >
+      needs.precheck.outputs.sonar_enabled == 'true' &&
+      (
+        github.event_name != 'pull_request' ||
+        github.event.pull_request.head.repo.full_name == github.repository
+      )
     runs-on: ubuntu-latest
     continue-on-error: true
 
@@ -104,8 +111,8 @@ jobs:
 
   trivy-fs:
     name: Trivy Source Scan
-    runs-on: ubuntu-latest
     needs: code-quality
+    runs-on: ubuntu-latest
     continue-on-error: true
 
     steps:
@@ -124,8 +131,8 @@ jobs:
 
   helm-lint:
     name: Helm Lint and Template Validation
-    runs-on: ubuntu-latest
     needs: code-quality
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
@@ -148,8 +155,8 @@ jobs:
 
   build-and-scan-images:
     name: Build and Scan Docker Images
-    runs-on: ubuntu-latest
     needs: code-quality
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
@@ -186,7 +193,9 @@ jobs:
   push-to-acr:
     name: Push Docker Images to Azure Container Registry
     needs: [precheck, build-and-scan-images]
-    if: needs.precheck.outputs.azure_ready == 'true' && github.event_name != 'pull_request'
+    if: >
+      needs.precheck.outputs.azure_ready == 'true' &&
+      github.event_name != 'pull_request'
     runs-on: ubuntu-latest
 
     steps:
