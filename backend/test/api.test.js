@@ -1,10 +1,24 @@
-
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const { once } = require("node:events");
 const app = require("../app");
 
-test("health endpoint returns healthy status", async () => {
+const startServer = async () => {
   const server = app.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  return server;
+};
+
+const stopServer = async (server) => {
+  if (!server.listening) return;
+
+  await new Promise((resolve, reject) => {
+    server.close((err) => (err ? reject(err) : resolve()));
+  });
+};
+
+test("health endpoint returns healthy status", async () => {
+  const server = await startServer();
 
   try {
     const address = server.address();
@@ -17,14 +31,12 @@ test("health endpoint returns healthy status", async () => {
       status: "healthy"
     });
   } finally {
-    await new Promise((resolve, reject) =>
-      server.close(err => err ? reject(err) : resolve())
-    );
+    await stopServer(server);
   }
 });
 
 test("message endpoint returns expected response", async () => {
-  const server = app.listen(0, "127.0.0.1");
+  const server = await startServer();
 
   try {
     const address = server.address();
@@ -36,8 +48,6 @@ test("message endpoint returns expected response", async () => {
     assert.equal(response.status, 200);
     assert.equal(body.status, "success");
   } finally {
-    await new Promise((resolve, reject) =>
-      server.close(err => err ? reject(err) : resolve())
-    );
+    await stopServer(server);
   }
 });
