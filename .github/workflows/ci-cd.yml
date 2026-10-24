@@ -3,72 +3,69 @@ name: PWC Project CI/CD
 on:
   push:
     branches:
-      - main
       - develop
-      - feature/**
-    paths-ignore:
-      - "helm/**"
-      - "README.md"
+      - main
+      - "feature/**"
 
   pull_request:
     branches:
-      - main
       - develop
+      - main
 
   workflow_dispatch:
     inputs:
       promote_production:
-        description: "Promote the current workflow commit to production"
+        description: "Promote the current main commit to production"
         required: true
         type: boolean
         default: false
 
 permissions:
   contents: write
-  security-events: write
   id-token: write
+  security-events: write
 
 env:
-  NODE_VERSION: "20"
-  IMAGE_TAG: ${{ github.sha }}
+  ACR_NAME: ${{ vars.ACR_NAME }}
+  ACR_LOGIN_SERVER: ${{ vars.ACR_LOGIN_SERVER }}
 
 jobs:
 
   # 1. Install dependencies, lint and test
   code-quality:
-    name: Code Quality and Unit Tests
+    name: Code Quality and Tests
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version: "20"
 
-      - name: Install Backend Dependencies
+      - name: Install Dependencies
         working-directory: backend
         run: npm install
 
-      - name: Run Backend Lint
+      - name: Lint
         working-directory: backend
         run: npm run lint --if-present
 
-      - name: Run Backend Tests
+      - name: Unit Tests
         working-directory: backend
         run: npm test --if-present
 
 
-  # 2. SonarQube code analysis
+  # 2. SonarQube quality analysis
   sonarqube:
     name: SonarQube Analysis
     runs-on: ubuntu-latest
     needs: code-quality
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -85,17 +82,17 @@ jobs:
             -Dsonar.qualitygate.wait=true
 
 
-  # 3. Scan source code and dependencies
-  source-security:
-    name: Trivy Filesystem Scan
+  # 3. Source security scan
+  trivy-filesystem:
+    name: Trivy Source Scan
     runs-on: ubuntu-latest
     needs: code-quality
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Trivy Source and Dependency Scan
+      - name: Trivy Filesystem Scan
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
@@ -112,56 +109,63 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Helm
+      - name: Setup Helm
         uses: azure/setup-helm@v4
 
-      - name: Helm Lint
+      - name: Validate Development Chart
         run: |
-          helm lint ./helm/pwc-project
           helm lint ./helm/pwc-project \
             -f ./helm/pwc-project/values-dev.yaml
+
+          helm template pwc-project ./helm/pwc-project \
+            --namespace pwc-dev \
+            -f ./helm/pwc-project/values-dev.yaml
+
+      - name: Validate Production Chart
+        run: |
           helm lint ./helm/pwc-project \
             -f ./helm/pwc-project/values-prod.yaml
 
-      - name: Render Development Templates
-        run: |
           helm template pwc-project ./helm/pwc-project \
-            -f ./helm/pwc-project/values-dev.yaml
-
-      - name: Render Production Templates
-        run: |
-          helm template pwc-project ./helm/pwc-project \
+            --namespace pwc-prod \
             -f ./helm/pwc-project/values-prod.yaml
 
 
-  # 5. Build images, scan images, and push to Azure ACR
+  # 5. Build, scan and push images to ACR
   build-scan-push:
-    name: Build, Scan and Push Docker Images
+    name: Build, Scan and Push Images
     runs-on: ubuntu-latest
     needs:
       - code-quality
       - sonarqube
-      - source-security
+      - trivy-filesystem
       - helm-validation
-    if: github.event_name != 'pull_request'
+
+    if: >
+      github.event_name != 'pull_request' &&
+      (
+        github.ref == 'refs/heads/develop' ||
+        github.ref == 'refs/heads/main' ||
+        github.event_name == 'workflow_dispatch'
+      )
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Build Backend Image
         run: |
           docker build \
-            -t "${{ vars.ACR_LOGIN_SERVER }}/pwc-project-backend:${IMAGE_TAG}" \
+            -t "$ACR_LOGIN_SERVER/pwc-project-backend:$GITHUB_SHA" \
             ./backend
 
       - name: Build Frontend Image
         run: |
           docker build \
-            -t "${{ vars.ACR_LOGIN_SERVER }}/pwc-project-frontend:${IMAGE_TAG}" \
+            -t "$ACR_LOGIN_SERVER/pwc-project-frontend:$GITHUB_SHA" \
             ./frontend
 
       - name: Scan Backend Image
@@ -184,74 +188,79 @@ jobs:
           ignore-unfixed: true
           exit-code: "1"
 
-      - name: Azure Login with OIDC
+      - name: Azure Login
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Login to Azure Container Registry
-        run: az acr login --name "${{ vars.ACR_NAME }}"
+      - name: Login to ACR
+        run: az acr login --name "$ACR_NAME"
 
       - name: Push Backend Image
         run: |
-          docker push \
-            "${{ vars.ACR_LOGIN_SERVER }}/pwc-project-backend:${IMAGE_TAG}"
+          docker push "$ACR_LOGIN_SERVER/pwc-project-backend:$GITHUB_SHA"
 
       - name: Push Frontend Image
         run: |
-          docker push \
-            "${{ vars.ACR_LOGIN_SERVER }}/pwc-project-frontend:${IMAGE_TAG}"
+          docker push "$ACR_LOGIN_SERVER/pwc-project-frontend:$GITHUB_SHA"
 
 
-  # 6. Update development Helm image tags
+  # 6. Update dev Helm values automatically
   update-development:
-    name: Update Development Image Tags
+    name: Update Development GitOps
     runs-on: ubuntu-latest
     needs: build-scan-push
-    if: github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main'
+
+    if: >
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/develop'
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout Develop
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.ref_name }}
-          token: ${{ secrets.GITHUB_TOKEN }}
+          ref: develop
 
       - name: Install yq
         uses: mikefarah/yq@v4.44.3
 
-      - name: Update Development Values
+      - name: Update Development Image Tags
         env:
           TAG: ${{ github.sha }}
         run: |
           yq -i '.backend.image.tag = strenv(TAG)' \
-            ./helm/pwc-project/values-dev.yaml
-          yq -i '.frontend.image.tag = strenv(TAG)' \
-            ./helm/pwc-project/values-dev.yaml
+            helm/pwc-project/values-dev.yaml
 
-      - name: Commit and Push Development Values
+          yq -i '.frontend.image.tag = strenv(TAG)' \
+            helm/pwc-project/values-dev.yaml
+
+      - name: Commit and Push GitOps Change
         run: |
           git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
 
           git add helm/pwc-project/values-dev.yaml
 
           if ! git diff --cached --quiet; then
-            git commit -m "ci: update development image to ${IMAGE_TAG}"
-            git push origin "HEAD:${GITHUB_REF_NAME}"
+            git commit -m "gitops: deploy ${GITHUB_SHA} to dev"
+            git push origin HEAD:develop
           else
-            echo "Development image tags are already up to date."
+            echo "Development image tags are already current."
           fi
 
 
-  # 7. Verify development endpoint
-  smoke-test-development:
+  # 7. Wait for dev deployment and test API
+  development-smoke-test:
     name: Development Smoke Test
     runs-on: ubuntu-latest
     needs: update-development
-    if: github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main'
+
+    if: >
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/develop'
 
     steps:
       - name: Check Development API
@@ -259,30 +268,32 @@ jobs:
           DEV_APP_URL: ${{ vars.DEV_APP_URL }}
         run: |
           test -n "$DEV_APP_URL" || {
-            echo "DEV_APP_URL repository variable is required"
+            echo "Set the DEV_APP_URL repository variable."
             exit 1
           }
 
-          for attempt in $(seq 1 12); do
+          for attempt in $(seq 1 18); do
             if curl --fail --silent --show-error \
               "${DEV_APP_URL%/}/api/health"; then
-              echo "Development API is healthy"
+              echo "Development API is healthy."
               exit 0
             fi
 
-            echo "Attempt ${attempt}: API not ready; waiting 10 seconds"
+            echo "Waiting for Argo CD deployment: attempt $attempt"
             sleep 10
           done
 
-          echo "Development smoke test failed"
+          echo "Development deployment did not become healthy."
           exit 1
 
 
-  # 8. Manually approve and promote to production
+  # 8. Production GitOps update.
+  # GitHub pauses this job until the protected environment is approved.
   promote-production:
-    name: Promote Image to Production
+    name: Production Approval and GitOps Update
     runs-on: ubuntu-latest
     needs: build-scan-push
+
     if: >
       github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/main' &&
@@ -295,40 +306,42 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: main
-          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install yq
         uses: mikefarah/yq@v4.44.3
 
-      - name: Update Production Values
+      - name: Update Production Image Tags
         env:
           TAG: ${{ github.sha }}
         run: |
           yq -i '.backend.image.tag = strenv(TAG)' \
-            ./helm/pwc-project/values-prod.yaml
-          yq -i '.frontend.image.tag = strenv(TAG)' \
-            ./helm/pwc-project/values-prod.yaml
+            helm/pwc-project/values-prod.yaml
 
-      - name: Commit and Push Production Values
+          yq -i '.frontend.image.tag = strenv(TAG)' \
+            helm/pwc-project/values-prod.yaml
+
+      - name: Commit and Push Production GitOps Change
         run: |
           git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
 
           git add helm/pwc-project/values-prod.yaml
 
           if ! git diff --cached --quiet; then
-            git commit -m "release: promote ${IMAGE_TAG} to production"
+            git commit -m "gitops: promote ${GITHUB_SHA} to prod"
             git push origin HEAD:main
           else
-            echo "Production image tags are already up to date."
+            echo "Production image tags are already current."
           fi
 
 
-  # 9. Verify production endpoint after Argo CD syncs
-  verify-production:
+  # 9. Verify prod after Argo CD sync
+  production-smoke-test:
     name: Production Smoke Test
     runs-on: ubuntu-latest
     needs: promote-production
+
     if: >
       github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/main' &&
@@ -340,21 +353,21 @@ jobs:
           PROD_APP_URL: ${{ vars.PROD_APP_URL }}
         run: |
           test -n "$PROD_APP_URL" || {
-            echo "PROD_APP_URL repository variable is required"
+            echo "Set the PROD_APP_URL repository variable."
             exit 1
           }
 
-          for attempt in $(seq 1 12); do
+          for attempt in $(seq 1 18); do
             if curl --fail --silent --show-error \
               "${PROD_APP_URL%/}/api/health"; then
-              echo "Production API is healthy"
+              echo "Production API is healthy."
               exit 0
             fi
 
-            echo "Attempt ${attempt}: API not ready; waiting 10 seconds"
+            echo "Waiting for Argo CD deployment: attempt $attempt"
             sleep 10
           done
 
-          echo "Production smoke test failed"
+          echo "Production deployment did not become healthy."
           exit 1
 ```
