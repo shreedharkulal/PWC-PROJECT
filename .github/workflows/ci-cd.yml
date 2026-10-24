@@ -18,7 +18,7 @@ env:
 jobs:
   precheck:
     name: Precheck required config
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       sonar_enabled: ${{ steps.check.outputs.sonar_enabled }}
       azure_ready: ${{ steps.check.outputs.azure_ready }}
@@ -50,7 +50,7 @@ jobs:
 
   code-quality:
     name: Code Quality and Backend Tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout
@@ -82,7 +82,7 @@ jobs:
     name: SonarQube Analysis
     needs: [precheck, code-quality]
     if: ${{ needs.precheck.outputs.sonar_enabled == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     continue-on-error: true
 
     steps:
@@ -124,7 +124,7 @@ jobs:
   trivy-fs:
     name: Trivy Source Scan
     needs: code-quality
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     continue-on-error: true
 
     steps:
@@ -144,7 +144,7 @@ jobs:
   helm-lint:
     name: Helm Lint and Template Validation
     needs: code-quality
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout
@@ -168,7 +168,7 @@ jobs:
   build-and-scan-images:
     name: Build and Scan Docker Images
     needs: code-quality
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout
@@ -206,7 +206,7 @@ jobs:
     name: Push Docker Images to Azure Container Registry
     needs: [precheck, build-and-scan-images]
     if: ${{ needs.precheck.outputs.azure_ready == 'true' && github.event_name != 'pull_request' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout
