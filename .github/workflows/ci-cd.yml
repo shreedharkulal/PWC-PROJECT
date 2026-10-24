@@ -53,8 +53,7 @@ jobs:
         working-directory: backend
         run: npm test --if-present
 
-        
-   sonarqube:
+  sonarqube:
     name: SonarCloud Analysis
     runs-on: ubuntu-latest
     needs: code-quality
@@ -130,7 +129,6 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - code-quality
-      - sonarqube
       - trivy-filesystem
       - helm-validation
 
