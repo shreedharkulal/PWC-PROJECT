@@ -57,7 +57,10 @@ jobs:
     name: SonarCloud Analysis
     runs-on: ubuntu-latest
     needs: code-quality
-    if: ${{ secrets.SONAR_TOKEN != '' && vars.SONAR_HOST_URL != '' && vars.SONAR_PROJECT_KEY != '' }}
+    if: >
+      secrets.SONAR_TOKEN != '' &&
+      vars.SONAR_HOST_URL != '' &&
+      vars.SONAR_PROJECT_KEY != ''
 
     steps:
       - name: Checkout
@@ -138,7 +141,12 @@ jobs:
         github.ref == 'refs/heads/develop' ||
         github.ref == 'refs/heads/main' ||
         github.event_name == 'workflow_dispatch'
-      )
+      ) &&
+      secrets.AZURE_CLIENT_ID != '' &&
+      secrets.AZURE_TENANT_ID != '' &&
+      secrets.AZURE_SUBSCRIPTION_ID != '' &&
+      vars.ACR_NAME != '' &&
+      vars.ACR_LOGIN_SERVER != ''
 
     steps:
       - name: Checkout
