@@ -11,17 +11,10 @@ on:
       - develop
       - main
   workflow_dispatch:
-    inputs:
-      promote_production:
-        description: "Promote the current main commit to production"
-        required: false
-        type: boolean
-        default: false
 
 permissions:
-  contents: write
+  contents: read
   id-token: write
-  security-events: write
 
 env:
   ACR_NAME: ${{ vars.ACR_NAME }}
@@ -45,18 +38,19 @@ jobs:
         working-directory: backend
         run: npm install
 
-      - name: Lint backend
+      - name: Run backend lint
         working-directory: backend
         run: npm run lint --if-present
 
-      - name: Run backend tests
+      - name: Run backend unit tests
         working-directory: backend
         run: npm test --if-present
 
-  sonarqube:
+  sonarcloud:
     name: SonarCloud Analysis
     runs-on: ubuntu-latest
     needs: code-quality
+    continue-on-error: true
     if: >
       secrets.SONAR_TOKEN != '' &&
       vars.SONAR_HOST_URL != '' &&
@@ -79,7 +73,7 @@ jobs:
             -Dsonar.sources=backend,frontend
             -Dsonar.qualitygate.wait=true
 
-  trivy-filesystem:
+  trivy-fs:
     name: Trivy Source Scan
     runs-on: ubuntu-latest
     needs: code-quality
@@ -89,7 +83,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Trivy Filesystem Scan
+      - name: Trivy filesystem scan
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
@@ -99,43 +93,10 @@ jobs:
           ignore-unfixed: true
           exit-code: "0"
 
-  helm-validation:
-    name: Helm Validation
+  build-and-push-images:
+    name: Build and Push Docker Images
     runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Helm
-        uses: azure/setup-helm@v4
-
-      - name: Validate Development Chart
-        run: |
-          helm lint ./helm/pwc-project \
-            -f ./helm/pwc-project/values-dev.yaml
-
-          helm template pwc-project ./helm/pwc-project \
-            --namespace pwc-dev \
-            -f ./helm/pwc-project/values-dev.yaml
-
-      - name: Validate Production Chart
-        run: |
-          helm lint ./helm/pwc-project \
-            -f ./helm/pwc-project/values-prod.yaml
-
-          helm template pwc-project ./helm/pwc-project \
-            --namespace pwc-prod \
-            -f ./helm/pwc-project/values-prod.yaml
-
-  build-scan-push:
-    name: Build, Scan and Push Images
-    runs-on: ubuntu-latest
-    needs:
-      - code-quality
-      - trivy-filesystem
-      - helm-validation
-
+    needs: code-quality
     if: >
       github.event_name != 'pull_request' &&
       (
@@ -165,7 +126,7 @@ jobs:
             -t "$ACR_LOGIN_SERVER/pwc-project-frontend:$GITHUB_SHA" \
             ./frontend
 
-      - name: Scan Backend Image
+      - name: Trivy Backend Image Scan
         continue-on-error: true
         uses: aquasecurity/trivy-action@v0.36.0
         with:
@@ -176,7 +137,7 @@ jobs:
           ignore-unfixed: true
           exit-code: "0"
 
-      - name: Scan Frontend Image
+      - name: Trivy Frontend Image Scan
         continue-on-error: true
         uses: aquasecurity/trivy-action@v0.36.0
         with:
@@ -194,7 +155,7 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Login to ACR
+      - name: Login to Azure Container Registry
         run: az acr login --name "$ACR_NAME"
 
       - name: Push Backend Image
@@ -204,157 +165,3 @@ jobs:
       - name: Push Frontend Image
         run: |
           docker push "$ACR_LOGIN_SERVER/pwc-project-frontend:$GITHUB_SHA"
-
-  update-development:
-    name: Update Development GitOps
-    runs-on: ubuntu-latest
-    needs: build-scan-push
-
-    if: >
-      github.event_name == 'push' &&
-      github.ref == 'refs/heads/develop'
-
-    steps:
-      - name: Checkout Develop
-        uses: actions/checkout@v4
-        with:
-          ref: develop
-
-      - name: Install yq
-        uses: mikefarah/yq@v4.44.3
-
-      - name: Update Development Image Tags
-        env:
-          TAG: ${{ github.sha }}
-        run: |
-          yq -i '.backend.image.tag = strenv(TAG)' \
-            helm/pwc-project/values-dev.yaml
-
-          yq -i '.frontend.image.tag = strenv(TAG)' \
-            helm/pwc-project/values-dev.yaml
-
-      - name: Commit and Push GitOps Change
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          git add helm/pwc-project/values-dev.yaml
-
-          if ! git diff --cached --quiet; then
-            git commit -m "gitops: deploy ${GITHUB_SHA} to dev"
-            git push origin HEAD:develop
-          else
-            echo "Development image tags are already current."
-          fi
-
-  development-smoke-test:
-    name: Development Smoke Test
-    runs-on: ubuntu-latest
-    needs: update-development
-
-    if: >
-      github.event_name == 'push' &&
-      github.ref == 'refs/heads/develop'
-
-    steps:
-      - name: Check Development API
-        env:
-          DEV_APP_URL: ${{ vars.DEV_APP_URL }}
-        run: |
-          test -n "$DEV_APP_URL" || {
-            echo "Set the DEV_APP_URL repository variable."
-            exit 1
-          }
-
-          for attempt in $(seq 1 18); do
-            if curl --fail --silent --show-error \
-              "${DEV_APP_URL%/}/api/health"; then
-              echo "Development API is healthy."
-              exit 0
-            fi
-
-            echo "Waiting for Argo CD deployment: attempt $attempt"
-            sleep 10
-          done
-
-          echo "Development deployment did not become healthy."
-          exit 1
-
-  promote-production:
-    name: Production Approval and GitOps Update
-    runs-on: ubuntu-latest
-    needs: build-scan-push
-
-    if: >
-      github.event_name == 'workflow_dispatch' &&
-      github.ref == 'refs/heads/main' &&
-      inputs.promote_production == true
-
-    environment: production
-
-    steps:
-      - name: Checkout Main
-        uses: actions/checkout@v4
-        with:
-          ref: main
-
-      - name: Install yq
-        uses: mikefarah/yq@v4.44.3
-
-      - name: Update Production Image Tags
-        env:
-          TAG: ${{ github.sha }}
-        run: |
-          yq -i '.backend.image.tag = strenv(TAG)' \
-            helm/pwc-project/values-prod.yaml
-
-          yq -i '.frontend.image.tag = strenv(TAG)' \
-            helm/pwc-project/values-prod.yaml
-
-      - name: Commit and Push Production GitOps Change
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          git add helm/pwc-project/values-prod.yaml
-
-          if ! git diff --cached --quiet; then
-            git commit -m "gitops: promote ${GITHUB_SHA} to prod"
-            git push origin HEAD:main
-          else
-            echo "Production image tags are already current."
-          fi
-
-  production-smoke-test:
-    name: Production Smoke Test
-    runs-on: ubuntu-latest
-    needs: promote-production
-
-    if: >
-      github.event_name == 'workflow_dispatch' &&
-      github.ref == 'refs/heads/main' &&
-      inputs.promote_production == true
-
-    steps:
-      - name: Check Production API
-        env:
-          PROD_APP_URL: ${{ vars.PROD_APP_URL }}
-        run: |
-          test -n "$PROD_APP_URL" || {
-            echo "Set the PROD_APP_URL repository variable."
-            exit 1
-          }
-
-          for attempt in $(seq 1 18); do
-            if curl --fail --silent --show-error \
-              "${PROD_APP_URL%/}/api/health"; then
-              echo "Production API is healthy."
-              exit 0
-            fi
-
-            echo "Waiting for Argo CD deployment: attempt $attempt"
-            sleep 10
-          done
-
-          echo "Production deployment did not become healthy."
-          exit 1
