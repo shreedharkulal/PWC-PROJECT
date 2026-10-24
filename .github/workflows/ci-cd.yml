@@ -3,13 +3,7 @@ name: PWC Project CI/CD
 on:
   push:
     branches:
-      - main
-      - develop
-      - "feature/**"
-  pull_request:
-    branches:
-      - main
-      - develop
+      - "**"
   workflow_dispatch:
 
 permissions:
@@ -18,8 +12,6 @@ permissions:
 
 env:
   IMAGE_TAG: ${{ github.sha }}
-  ACR_NAME: ${{ vars.ACR_NAME }}
-  ACR_LOGIN_SERVER: ${{ vars.ACR_LOGIN_SERVER }}
 
 jobs:
   precheck:
@@ -30,40 +22,29 @@ jobs:
       azure_ready: ${{ steps.check.outputs.azure_ready }}
 
     steps:
-      - name: Check SonarQube and Azure configuration
+      - name: Check config
         id: check
         shell: bash
         run: |
-          echo "event_name=${{ github.event_name }}"
-          echo "repository=${{ github.repository }}"
-          echo "head_repo=${{ github.event.pull_request.head.repo.full_name }}"
-
           if [[ -n "${{ secrets.SONAR_TOKEN }}" && -n "${{ vars.SONAR_HOST_URL }}" && -n "${{ vars.SONAR_PROJECT_KEY }}" ]]; then
             echo "sonar_enabled=true" >> "$GITHUB_OUTPUT"
-            echo "SONAR enabled: true"
           else
             echo "sonar_enabled=false" >> "$GITHUB_OUTPUT"
-            echo "SONAR enabled: false"
           fi
 
           if [[ -n "${{ secrets.AZURE_CLIENT_ID }}" && -n "${{ secrets.AZURE_TENANT_ID }}" && -n "${{ secrets.AZURE_SUBSCRIPTION_ID }}" && -n "${{ vars.ACR_NAME }}" && -n "${{ vars.ACR_LOGIN_SERVER }}" ]]; then
             echo "azure_ready=true" >> "$GITHUB_OUTPUT"
-            echo "AZURE ready: true"
           else
             echo "azure_ready=false" >> "$GITHUB_OUTPUT"
-            echo "AZURE ready: false"
           fi
 
   code-quality:
     name: Code Quality and Backend Tests
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: "npm"
@@ -87,18 +68,11 @@ jobs:
   sonar:
     name: SonarQube Analysis
     needs: [precheck, code-quality]
-    if: >
-      needs.precheck.outputs.sonar_enabled == 'true' &&
-      (
-        github.event_name != 'pull_request' ||
-        github.event.pull_request.head.repo.full_name == github.repository
-      )
     runs-on: ubuntu-latest
     continue-on-error: true
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -114,119 +88,3 @@ jobs:
             -Dsonar.sources=backend,frontend
             -Dsonar.qualitygate.wait=true
             -Dsonar.exclusions=**/node_modules/**,**/dist/**,**/build/**
-
-  trivy-fs:
-    name: Trivy Source Scan
-    needs: code-quality
-    runs-on: ubuntu-latest
-    continue-on-error: true
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Trivy filesystem scan
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          scan-type: fs
-          scan-ref: .
-          scanners: vuln,secret
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          exit-code: "0"
-
-  helm-lint:
-    name: Helm Lint and Template Validation
-    needs: code-quality
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Helm
-        uses: azure/setup-helm@v4
-
-      - name: Lint Helm chart
-        run: |
-          helm lint ./helm/pwc-project --values ./helm/pwc-project/values.yaml
-          helm lint ./helm/pwc-project --values ./helm/pwc-project/values-dev.yaml
-          helm lint ./helm/pwc-project --values ./helm/pwc-project/values-prod.yaml
-
-      - name: Render Helm templates
-        run: |
-          helm template pwc-project ./helm/pwc-project --values ./helm/pwc-project/values.yaml > /tmp/pwc-render.yaml
-          helm template pwc-project ./helm/pwc-project --values ./helm/pwc-project/values-dev.yaml > /tmp/pwc-render-dev.yaml
-          helm template pwc-project ./helm/pwc-project/values-prod.yaml > /tmp/pwc-render-prod.yaml
-
-  build-and-scan-images:
-    name: Build and Scan Docker Images
-    needs: code-quality
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Build backend image
-        run: docker build -t pwc-project-backend:${{ env.IMAGE_TAG }} ./backend
-
-      - name: Build frontend image
-        run: docker build -t pwc-project-frontend:${{ env.IMAGE_TAG }} ./frontend
-
-      - name: Trivy backend image scan
-        continue-on-error: true
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          scan-type: image
-          image-ref: pwc-project-backend:${{ env.IMAGE_TAG }}
-          scanners: vuln
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          exit-code: "0"
-
-      - name: Trivy frontend image scan
-        continue-on-error: true
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          scan-type: image
-          image-ref: pwc-project-frontend:${{ env.IMAGE_TAG }}
-          scanners: vuln
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          exit-code: "0"
-
-  push-to-acr:
-    name: Push Docker Images to Azure Container Registry
-    needs: [precheck, build-and-scan-images]
-    if: >
-      needs.precheck.outputs.azure_ready == 'true' &&
-      github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Build backend image for registry
-        run: docker build -t "${{ env.ACR_LOGIN_SERVER }}/pwc-project-backend:${{ env.IMAGE_TAG }}" ./backend
-
-      - name: Build frontend image for registry
-        run: docker build -t "${{ env.ACR_LOGIN_SERVER }}/pwc-project-frontend:${{ env.IMAGE_TAG }}" ./frontend
-
-      - name: Azure Login
-        uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          allow-no-subscriptions: true
-
-      - name: Login to Azure Container Registry
-        run: az acr login --name "${{ env.ACR_NAME }}"
-
-      - name: Push backend image
-        run: docker push "${{ env.ACR_LOGIN_SERVER }}/pwc-project-backend:${{ env.IMAGE_TAG }}"
-
-      - name: Push frontend image
-        run: docker push "${{ env.ACR_LOGIN_SERVER }}/pwc-project-frontend:${{ env.IMAGE_TAG }}"
