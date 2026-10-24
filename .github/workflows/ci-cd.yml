@@ -24,7 +24,7 @@ jobs:
       azure_ready: ${{ steps.check.outputs.azure_ready }}
 
     steps:
-      - name: Check SonarQube and Azure configuration
+      - name: Check required configuration
         id: check
         shell: bash
         run: |
