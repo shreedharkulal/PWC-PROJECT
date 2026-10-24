@@ -1,32 +1,40 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PWC Project</title>
 </head>
 <body>
   <h1>Welcome to PWC Project</h1>
-  <p>Frontend application</p>
+  <p>Frontend: HTML and Nginx</p>
+  <p>Backend: Node.js and Express</p>
 
-  <button onclick="getMessage()">Call Backend</button>
-  <p id="message"></p>
+  <button id="call-api">Call Backend</button>
+  <pre id="result">Click the button to test the backend.</pre>
 
   <script>
-    async function getMessage() {
+    document.getElementById("call-api").addEventListener("click", async () => {
+      const result = document.getElementById("result");
+      result.textContent = "Loading...";
+
       try {
-        const response = await fetch(
-          "http://localhost:3000/api/message"
+        const response = await fetch("/api/message");
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        result.textContent = JSON.stringify(
+          await response.json(),
+          null,
+          2
         );
-        const data = await response.json();
-        document.getElementById("message").textContent =
-          data.message;
-      } catch {
-        document.getElementById("message").textContent =
-          "Backend is not running!";
+      } catch (error) {
+        result.textContent = `Request failed: ${error.message}`;
       }
-    }
+    });
   </script>
 </body>
 </html>
+
