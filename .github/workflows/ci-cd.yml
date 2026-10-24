@@ -32,7 +32,7 @@ jobs:
           echo "REPO=${{ github.repository }}"
           echo "REF=${{ github.ref }}"
 
-          if [[ -n "${{ secrets.SONAR_TOKEN }}" && -n "${{ vars.SONAR_HOST_URL }}" && -n "${{ vars.SONAR_PROJECT_KEY }}" ]]; then
+          if [[ -n "${{ secrets.SONAR_TOKEN }}" && -n "${{ vars.SONAR_HOST_URL }}" && -n "${{ vars.SONAR_PROJECT_KEY }}" && -n "${{ vars.SONAR_ORGANIZATION }}" ]]; then
             echo "sonar_enabled=true" >> "$GITHUB_OUTPUT"
             echo "SONAR enabled: true"
           else
@@ -104,6 +104,7 @@ jobs:
         with:
           projectBaseDir: .
           args: >
+            -Dsonar.organization=${{ vars.SONAR_ORGANIZATION }}
             -Dsonar.projectKey=${{ vars.SONAR_PROJECT_KEY }}
             -Dsonar.sources=backend,frontend
             -Dsonar.qualitygate.wait=true
