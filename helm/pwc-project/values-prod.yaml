@@ -1,0 +1,11 @@
+frontend:
+  replicaCount: 2
+  image:
+    repository: myregistry.azurecr.io/pwc-project-frontend
+    tag: initial
+
+backend:
+  replicaCount: 2
+  image:
+    repository: myregistry.azurecr.io/pwc-project-backend
+    tag: initial
