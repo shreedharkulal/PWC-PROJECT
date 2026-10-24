@@ -34,18 +34,24 @@ jobs:
         id: check
         shell: bash
         run: |
-          # Sonar config
+          echo "event_name=${{ github.event_name }}"
+          echo "repository=${{ github.repository }}"
+          echo "head_repo=${{ github.event.pull_request.head.repo.full_name }}"
+
           if [[ -n "${{ secrets.SONAR_TOKEN }}" && -n "${{ vars.SONAR_HOST_URL }}" && -n "${{ vars.SONAR_PROJECT_KEY }}" ]]; then
             echo "sonar_enabled=true" >> "$GITHUB_OUTPUT"
+            echo "SONAR enabled: true"
           else
             echo "sonar_enabled=false" >> "$GITHUB_OUTPUT"
+            echo "SONAR enabled: false"
           fi
 
-          # Azure + ACR config
           if [[ -n "${{ secrets.AZURE_CLIENT_ID }}" && -n "${{ secrets.AZURE_TENANT_ID }}" && -n "${{ secrets.AZURE_SUBSCRIPTION_ID }}" && -n "${{ vars.ACR_NAME }}" && -n "${{ vars.ACR_LOGIN_SERVER }}" ]]; then
             echo "azure_ready=true" >> "$GITHUB_OUTPUT"
+            echo "AZURE ready: true"
           else
             echo "azure_ready=false" >> "$GITHUB_OUTPUT"
+            echo "AZURE ready: false"
           fi
 
   code-quality:
@@ -151,7 +157,7 @@ jobs:
         run: |
           helm template pwc-project ./helm/pwc-project --values ./helm/pwc-project/values.yaml > /tmp/pwc-render.yaml
           helm template pwc-project ./helm/pwc-project --values ./helm/pwc-project/values-dev.yaml > /tmp/pwc-render-dev.yaml
-          helm template pwc-project ./helm/pwc-project --values ./helm/pwc-project/values-prod.yaml > /tmp/pwc-render-prod.yaml
+          helm template pwc-project ./helm/pwc-project/values-prod.yaml > /tmp/pwc-render-prod.yaml
 
   build-and-scan-images:
     name: Build and Scan Docker Images
