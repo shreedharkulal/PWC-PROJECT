@@ -6,17 +6,15 @@ on:
       - develop
       - main
       - "feature/**"
-
   pull_request:
     branches:
       - develop
       - main
-
   workflow_dispatch:
     inputs:
       promote_production:
         description: "Promote the current main commit to production"
-        required: true
+        required: false
         type: boolean
         default: false
 
@@ -30,8 +28,6 @@ env:
   ACR_LOGIN_SERVER: ${{ vars.ACR_LOGIN_SERVER }}
 
 jobs:
-
-  # 1. Install dependencies, lint and test
   code-quality:
     name: Code Quality and Tests
     runs-on: ubuntu-latest
@@ -57,8 +53,6 @@ jobs:
         working-directory: backend
         run: npm test --if-present
 
-
-  # 2. SonarQube quality analysis
   sonarqube:
     name: SonarQube Analysis
     runs-on: ubuntu-latest
@@ -81,8 +75,6 @@ jobs:
             -Dsonar.sources=backend,frontend
             -Dsonar.qualitygate.wait=true
 
-
-  # 3. Source security scan
   trivy-filesystem:
     name: Trivy Source Scan
     runs-on: ubuntu-latest
@@ -102,8 +94,6 @@ jobs:
           ignore-unfixed: true
           exit-code: "1"
 
-
-  # 4. Validate Helm charts
   helm-validation:
     name: Helm Validation
     runs-on: ubuntu-latest
@@ -133,8 +123,6 @@ jobs:
             --namespace pwc-prod \
             -f ./helm/pwc-project/values-prod.yaml
 
-
-  # 5. Build, scan and push images to ACR
   build-scan-push:
     name: Build, Scan and Push Images
     runs-on: ubuntu-latest
@@ -172,7 +160,7 @@ jobs:
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: image
-          image-ref: ${{ vars.ACR_LOGIN_SERVER }}/pwc-project-backend:${{ github.sha }}
+          image-ref: ${{ env.ACR_LOGIN_SERVER }}/pwc-project-backend:${{ github.sha }}
           scanners: vuln
           severity: HIGH,CRITICAL
           ignore-unfixed: true
@@ -182,7 +170,7 @@ jobs:
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: image
-          image-ref: ${{ vars.ACR_LOGIN_SERVER }}/pwc-project-frontend:${{ github.sha }}
+          image-ref: ${{ env.ACR_LOGIN_SERVER }}/pwc-project-frontend:${{ github.sha }}
           scanners: vuln
           severity: HIGH,CRITICAL
           ignore-unfixed: true
@@ -206,8 +194,6 @@ jobs:
         run: |
           docker push "$ACR_LOGIN_SERVER/pwc-project-frontend:$GITHUB_SHA"
 
-
-  # 6. Update dev Helm values automatically
   update-development:
     name: Update Development GitOps
     runs-on: ubuntu-latest
@@ -239,8 +225,7 @@ jobs:
       - name: Commit and Push GitOps Change
         run: |
           git config user.name "github-actions[bot]"
-          git config user.email \
-            "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           git add helm/pwc-project/values-dev.yaml
 
@@ -251,8 +236,6 @@ jobs:
             echo "Development image tags are already current."
           fi
 
-
-  # 7. Wait for dev deployment and test API
   development-smoke-test:
     name: Development Smoke Test
     runs-on: ubuntu-latest
@@ -286,9 +269,6 @@ jobs:
           echo "Development deployment did not become healthy."
           exit 1
 
-
-  # 8. Production GitOps update.
-  # GitHub pauses this job until the protected environment is approved.
   promote-production:
     name: Production Approval and GitOps Update
     runs-on: ubuntu-latest
@@ -323,8 +303,7 @@ jobs:
       - name: Commit and Push Production GitOps Change
         run: |
           git config user.name "github-actions[bot]"
-          git config user.email \
-            "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           git add helm/pwc-project/values-prod.yaml
 
@@ -335,8 +314,6 @@ jobs:
             echo "Production image tags are already current."
           fi
 
-
-  # 9. Verify prod after Argo CD sync
   production-smoke-test:
     name: Production Smoke Test
     runs-on: ubuntu-latest
@@ -370,4 +347,3 @@ jobs:
 
           echo "Production deployment did not become healthy."
           exit 1
-```
