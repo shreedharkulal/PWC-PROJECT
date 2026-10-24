@@ -30,7 +30,7 @@ jobs:
         run: |
           echo "EVENT_NAME=${{ github.event_name }}"
           echo "REPO=${{ github.repository }}"
-          echo "GITHUB_REF=${{ github.ref }}"
+          echo "REF=${{ github.ref }}"
 
           if [[ -n "${{ secrets.SONAR_TOKEN }}" && -n "${{ vars.SONAR_HOST_URL }}" && -n "${{ vars.SONAR_PROJECT_KEY }}" ]]; then
             echo "sonar_enabled=true" >> "$GITHUB_OUTPUT"
@@ -81,10 +81,7 @@ jobs:
   sonar:
     name: SonarQube Analysis
     needs: [precheck, code-quality]
-    if: >
-      secrets.SONAR_TOKEN != '' &&
-      vars.SONAR_HOST_URL != '' &&
-      vars.SONAR_PROJECT_KEY != ''
+    if: ${{ needs.precheck.outputs.sonar_enabled == 'true' }}
     runs-on: ubuntu-latest
     continue-on-error: true
 
@@ -191,9 +188,7 @@ jobs:
   push-to-acr:
     name: Push Docker Images to Azure Container Registry
     needs: [precheck, build-and-scan-images]
-    if: >
-      needs.precheck.outputs.azure_ready == 'true' &&
-      github.event_name != 'pull_request'
+    if: ${{ needs.precheck.outputs.azure_ready == 'true' && github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
 
     steps:
