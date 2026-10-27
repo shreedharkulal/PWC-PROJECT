@@ -40,7 +40,7 @@ jobs:
             echo "SONAR enabled: false"
           fi
 
-          if [[ -n "${{ secrets.AZURE_CLIENT_ID }}" && -n "${{ secrets.AZURE_TENANT_ID }}" && -n "${{ secrets.AZURE_SUBSCRIPTION_ID }}" && -n "${{ vars.ACR_NAME }}" && -n "${{ vars.ACR_LOGIN_SERVER }}" ]]; then
+          if [[ -n "${{ secrets.FRONTEND_AZURE_CLIENT_ID }}" && -n "${{ secrets.FRONTEND_AZURE_TENANT_ID }}" && -n "${{ secrets.FRONTEND_AZURE_SUBSCRIPTION_ID }}" && -n "${{ secrets.BACKEND_AZURE_CLIENT_ID }}" && -n "${{ secrets.BACKEND_AZURE_TENANT_ID }}" && -n "${{ secrets.BACKEND_AZURE_SUBSCRIPTION_ID }}" ]]; then
             echo "azure_ready=true" >> "$GITHUB_OUTPUT"
             echo "AZURE ready: true"
           else
@@ -201,25 +201,44 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Build backend image for registry
-        run: docker build -t "${{ env.ACR_LOGIN_SERVER }}/pwc-project-backend:${{ env.IMAGE_TAG }}" ./backend
-
-      - name: Build frontend image for registry
-        run: docker build -t "${{ env.ACR_LOGIN_SERVER }}/pwc-project-frontend:${{ env.IMAGE_TAG }}" ./frontend
-
-      - name: Azure Login
+      # Frontend: authenticate with the frontend app registration
+      - name: Azure Login - Frontend
         uses: azure/login@v2
         with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          allow-no-subscriptions: true
+          client-id: ${{ secrets.FRONTEND_AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.FRONTEND_AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.FRONTEND_AZURE_SUBSCRIPTION_ID }}
 
-      - name: Login to Azure Container Registry
-        run: az acr login --name "${{ env.ACR_NAME }}"
+      - name: Login to Frontend ACR
+        run: az acr login --name fronted
 
-      - name: Push backend image
-        run: docker push "${{ env.ACR_LOGIN_SERVER }}/pwc-project-backend:${{ env.IMAGE_TAG }}"
+      - name: Build frontend image for registry
+        run: |
+          docker build \
+            -t fronted.azurecr.io/pwc-project-frontend:${{ env.IMAGE_TAG }} \
+            ./frontend
 
       - name: Push frontend image
-        run: docker push "${{ env.ACR_LOGIN_SERVER }}/pwc-project-frontend:${{ env.IMAGE_TAG }}"
+        run: |
+          docker push fronted.azurecr.io/pwc-project-frontend:${{ env.IMAGE_TAG }}
+
+      # Backend: authenticate with the backend app registration
+      - name: Azure Login - Backend
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.BACKEND_AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.BACKEND_AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.BACKEND_AZURE_SUBSCRIPTION_ID }}
+
+      - name: Login to Backend ACR
+        run: az acr login --name backends
+
+      - name: Build backend image for registry
+        run: |
+          docker build \
+            -t backends.azurecr.io/pwc-project-backend:${{ env.IMAGE_TAG }} \
+            ./backend
+
+      - name: Push backend image
+        run: |
+          docker push backends.azurecr.io/pwc-project-backend:${{ env.IMAGE_TAG }}
