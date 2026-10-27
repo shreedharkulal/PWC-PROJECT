@@ -2,10 +2,10 @@ param location string
 param clusterName string
 
 param systemNodeCount int = 1
-param systemNodeVmSize string = 'Standard_D2s_v3'
+param systemNodeVmSize string = 'Standard_D2s_v7'
 
 param userNodeCount int = 1
-param userNodeVmSize string = 'Standard_D2s_v3'
+param userNodeVmSize string = 'Standard_D2s_v7'
 
 resource aks 'Microsoft.ContainerService/managedClusters@2025-02-01' = {
   name: clusterName
