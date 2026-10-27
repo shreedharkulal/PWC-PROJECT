@@ -1,4 +1,3 @@
-
 name: PWC Project CI/CD
 
 on:
@@ -8,157 +7,105 @@ permissions:
   contents: read
   id-token: write
 
-# ==================================================
-# GLOBAL VARIABLES
-# ==================================================
 env:
-  FRONTEND_IMAGE: fronted.azurecr.io/pwc-project-frontend
-  BACKEND_IMAGE: backends.azurecr.io/pwc-project-backend
+  AKS_RESOURCE_GROUP: ${{ vars.AKS_RESOURCE_GROUP }}
+  AKS_NAME: ${{ vars.AKS_NAME }}
+  AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
 
 jobs:
 
-  # ==================================================
-  # DISABLED: PRECHECK
-  # ==================================================
+  # --------------------------------------------------
+  # Other CI/CD stages are disabled for now
+  # --------------------------------------------------
+
   # precheck:
-  #   name: Precheck
-  #   runs-on: ubuntu-24.04
-  #   outputs:
-  #     azure_ready: ${{ steps.check.outputs.azure_ready }}
-  #     sonar_enabled: ${{ steps.check.outputs.sonar_enabled }}
-  #   steps:
-  #     - name: Check configuration
-  #       id: check
-  #       run: echo "Precheck disabled temporarily"
+  #   ...
 
-  # ==================================================
-  # DISABLED: CODE QUALITY
-  # ==================================================
   # code-quality:
-  #   name: Code Quality
-  #   runs-on: ubuntu-24.04
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - name: Code quality checks
-  #       run: echo "Code quality disabled temporarily"
+  #   ...
 
-  # ==================================================
-  # DISABLED: SONAR SCAN
-  # ==================================================
   # sonar:
-  #   name: Sonar Scan
-  #   runs-on: ubuntu-24.04
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - name: Sonar scan
-  #       run: echo "Sonar disabled temporarily"
+  #   ...
 
-  # ==================================================
-  # DISABLED: TRIVY FILESYSTEM SCAN
-  # ==================================================
   # trivy-fs:
-  #   name: Trivy Filesystem Scan
-  #   runs-on: ubuntu-24.04
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - name: Trivy scan
-  #       run: echo "Trivy filesystem scan disabled temporarily"
+  #   ...
 
-  # ==================================================
-  # DISABLED: HELM VALIDATION
-  # ==================================================
   # helm-lint:
-  #   name: Helm Validation
-  #   runs-on: ubuntu-24.04
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: azure/setup-helm@v4
-  #     - name: Helm lint
-  #       run: helm lint helm/pwc-project
+  #   ...
 
-  # ==================================================
-  # DISABLED: BUILD AND SCAN IMAGES
-  # ==================================================
   # build-and-scan-images:
-  #   name: Build and Scan Images
-  #   runs-on: ubuntu-24.04
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - name: Build frontend
-  #       run: docker build -t "${FRONTEND_IMAGE}:${GITHUB_SHA}" ./frontend
-  #     - name: Build backend
-  #       run: docker build -t "${BACKEND_IMAGE}:${GITHUB_SHA}" ./backend
+  #   ...
 
-  # ==================================================
-  # DISABLED: PUSH IMAGES TO ACR
-  # ==================================================
   # push-to-acr:
-  #   name: Push Images to ACR
-  #   runs-on: ubuntu-24.04
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - name: Azure login
-  #       uses: azure/login@v2
-  #       with:
-  #         client-id: ${{ secrets.FRONTEND_AZURE_CLIENT_ID }}
-  #         tenant-id: ${{ secrets.FRONTEND_AZURE_TENANT_ID }}
-  #         subscription-id: ${{ secrets.FRONTEND_AZURE_SUBSCRIPTION_ID }}
-  #     - name: Push images
-  #       run: echo "ACR push disabled temporarily"
+  #   ...
 
-  # ==================================================
-  # ACTIVE: CREATE AKS CLUSTER AND NODE POOLS
-  # ==================================================
-  create-aks:
-    name: Create AKS Cluster and Node Pools
+  # --------------------------------------------------
+  # Stage 1: Validate Bicep templates
+  # --------------------------------------------------
+
+  validate-bicep:
+    name: Validate Bicep Templates
     runs-on: ubuntu-24.04
 
     steps:
-      # 1. Checkout repository
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. Authenticate to Azure through GitHub OIDC
-      - name: Azure Login for AKS
+      - name: Validate main Bicep template
+        run: az bicep build --file infra/main.bicep
+
+      - name: Validate AKS module
+        run: az bicep build --file infra/modules/aks.bicep
+
+  # --------------------------------------------------
+  # Stage 2: Azure Login
+  # --------------------------------------------------
+
+  azure-login:
+    name: Azure Login
+    runs-on: ubuntu-24.04
+    needs: validate-bicep
+
+    steps:
+      - name: Azure Login using OIDC
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AKS_AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AKS_AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AKS_AZURE_SUBSCRIPTION_ID }}
 
-      # 3. Validate Bicep templates
-      - name: Validate Bicep
-        run: |
-          set -euo pipefail
-          az bicep build --file infra/main.bicep
-          az bicep build --file infra/modules/aks.bicep
-
-      # 4. Verify subscription and resource group
-      - name: Verify Azure configuration
-        env:
-          AKS_RESOURCE_GROUP: ${{ vars.AKS_RESOURCE_GROUP }}
-          AKS_NAME: ${{ vars.AKS_NAME }}
-          AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
+      - name: Verify Azure account and resource group
         run: |
           set -euo pipefail
 
-          echo "Checking Azure subscription..."
           az account show --output table
 
-          echo "Checking resource group..."
           az group show \
             --name "$AKS_RESOURCE_GROUP" \
             --output table
 
-          echo "Target AKS cluster: $AKS_NAME"
-          echo "Target region: $AZURE_LOCATION"
+  # --------------------------------------------------
+  # Stage 3: What-If Preview
+  # Runs before any infrastructure deployment
+  # --------------------------------------------------
 
-      # 5. Preview planned infrastructure changes
-      - name: Preview AKS deployment
-        env:
-          AKS_RESOURCE_GROUP: ${{ vars.AKS_RESOURCE_GROUP }}
-          AKS_NAME: ${{ vars.AKS_NAME }}
-          AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
+  aks-what-if:
+    name: AKS Deployment What-If
+    runs-on: ubuntu-24.04
+    needs: azure-login
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Azure Login using OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AKS_AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AKS_AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AKS_AZURE_SUBSCRIPTION_ID }}
+
+      - name: Preview AKS infrastructure changes
         run: |
           set -euo pipefail
 
@@ -169,12 +116,28 @@ jobs:
               clusterName="$AKS_NAME" \
               location="$AZURE_LOCATION"
 
-      # 6. Create AKS and its node pools
+  # --------------------------------------------------
+  # Stage 4: Deploy AKS infrastructure
+  # Runs only after What-If succeeds
+  # --------------------------------------------------
+
+  deploy-aks:
+    name: Deploy AKS Cluster and Node Pools
+    runs-on: ubuntu-24.04
+    needs: aks-what-if
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Azure Login using OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AKS_AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AKS_AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AKS_AZURE_SUBSCRIPTION_ID }}
+
       - name: Deploy AKS infrastructure
-        env:
-          AKS_RESOURCE_GROUP: ${{ vars.AKS_RESOURCE_GROUP }}
-          AKS_NAME: ${{ vars.AKS_NAME }}
-          AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
         run: |
           set -euo pipefail
 
@@ -186,19 +149,36 @@ jobs:
               clusterName="$AKS_NAME" \
               location="$AZURE_LOCATION"
 
-      # 7. Verify cluster status and node pools
+  # --------------------------------------------------
+  # Stage 5: Verify AKS cluster and node pools
+  # --------------------------------------------------
+
+  verify-aks:
+    name: Verify AKS Deployment
+    runs-on: ubuntu-24.04
+    needs: deploy-aks
+
+    steps:
+      - name: Azure Login using OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AKS_AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AKS_AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AKS_AZURE_SUBSCRIPTION_ID }}
+
       - name: Verify AKS cluster
-        env:
-          AKS_RESOURCE_GROUP: ${{ vars.AKS_RESOURCE_GROUP }}
-          AKS_NAME: ${{ vars.AKS_NAME }}
         run: |
           set -euo pipefail
 
           az aks show \
             --resource-group "$AKS_RESOURCE_GROUP" \
             --name "$AKS_NAME" \
-            --query "{name:name, location:location, provisioningState:provisioningState}" \
+            --query "{name:name, location:location, state:provisioningState}" \
             --output table
+
+      - name: Verify AKS node pools
+        run: |
+          set -euo pipefail
 
           az aks nodepool list \
             --resource-group "$AKS_RESOURCE_GROUP" \
