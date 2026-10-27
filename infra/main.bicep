@@ -2,10 +2,10 @@ param location string = resourceGroup().location
 param clusterName string = 'aks-pwc-project'
 
 param systemNodeCount int = 1
-param systemNodeVmSize string = 'Standard_E104i_v5'
+param systemNodeVmSize string = 'Standard_D2s_v3'
 
 param userNodeCount int = 1
-param userNodeVmSize string = 'Standard_E104i_v5'
+param userNodeVmSize string = 'Standard_D2s_v3'
 
 module aks './modules/aks.bicep' = {
   name: 'aksDeployment'
