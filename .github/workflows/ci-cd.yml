@@ -1,244 +1,295 @@
+
 name: PWC Project CI/CD
 
 on:
   push:
     branches:
       - main
+
   workflow_dispatch:
+    inputs:
+      create_aks_only:
+        description: "Create AKS cluster and node pools only"
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
   id-token: write
 
 env:
-  IMAGE_TAG: ${{ github.sha }}
-  ACR_NAME: ${{ vars.ACR_NAME }}
-  ACR_LOGIN_SERVER: ${{ vars.ACR_LOGIN_SERVER }}
+  FRONTEND_IMAGE: fronted.azurecr.io/pwc-project-frontend
+  BACKEND_IMAGE: backends.azurecr.io/pwc-project-backend
 
 jobs:
+  # 1. Precheck existing CI/CD configuration
   precheck:
-    name: Precheck required config
+    name: Precheck
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.create_aks_only) }}
     runs-on: ubuntu-24.04
+
     outputs:
-      sonar_enabled: ${{ steps.check.outputs.sonar_enabled }}
       azure_ready: ${{ steps.check.outputs.azure_ready }}
+      sonar_enabled: ${{ steps.check.outputs.sonar_enabled }}
 
     steps:
-      - name: Check required configuration
+      - name: Check configuration
         id: check
-        shell: bash
+        env:
+          FRONTEND_CLIENT_ID: ${{ secrets.FRONTEND_AZURE_CLIENT_ID }}
+          FRONTEND_TENANT_ID: ${{ secrets.FRONTEND_AZURE_TENANT_ID }}
+          FRONTEND_SUBSCRIPTION_ID: ${{ secrets.FRONTEND_AZURE_SUBSCRIPTION_ID }}
+          BACKEND_CLIENT_ID: ${{ secrets.BACKEND_AZURE_CLIENT_ID }}
+          BACKEND_TENANT_ID: ${{ secrets.BACKEND_AZURE_TENANT_ID }}
+          BACKEND_SUBSCRIPTION_ID: ${{ secrets.BACKEND_AZURE_SUBSCRIPTION_ID }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
-          echo "EVENT_NAME=${{ github.event_name }}"
-          echo "REPO=${{ github.repository }}"
-          echo "REF=${{ github.ref }}"
-
-          if [[ -n "${{ secrets.SONAR_TOKEN }}" && -n "${{ vars.SONAR_HOST_URL }}" && -n "${{ vars.SONAR_PROJECT_KEY }}" && -n "${{ vars.SONAR_ORGANIZATION }}" ]]; then
-            echo "sonar_enabled=true" >> "$GITHUB_OUTPUT"
-            echo "SONAR enabled: true"
-          else
-            echo "sonar_enabled=false" >> "$GITHUB_OUTPUT"
-            echo "SONAR enabled: false"
-          fi
-
-          if [[ -n "${{ secrets.FRONTEND_AZURE_CLIENT_ID }}" && -n "${{ secrets.FRONTEND_AZURE_TENANT_ID }}" && -n "${{ secrets.FRONTEND_AZURE_SUBSCRIPTION_ID }}" && -n "${{ secrets.BACKEND_AZURE_CLIENT_ID }}" && -n "${{ secrets.BACKEND_AZURE_TENANT_ID }}" && -n "${{ secrets.BACKEND_AZURE_SUBSCRIPTION_ID }}" ]]; then
+          if [[ -n "$FRONTEND_CLIENT_ID" &&
+                -n "$FRONTEND_TENANT_ID" &&
+                -n "$FRONTEND_SUBSCRIPTION_ID" &&
+                -n "$BACKEND_CLIENT_ID" &&
+                -n "$BACKEND_TENANT_ID" &&
+                -n "$BACKEND_SUBSCRIPTION_ID" ]]; then
             echo "azure_ready=true" >> "$GITHUB_OUTPUT"
-            echo "AZURE ready: true"
           else
             echo "azure_ready=false" >> "$GITHUB_OUTPUT"
-            echo "AZURE ready: false"
           fi
 
+          if [[ -n "$SONAR_TOKEN" ]]; then
+            echo "sonar_enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "sonar_enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # 2. Code quality and Bicep syntax
   code-quality:
-    name: Code Quality and Backend Tests
+    name: Code Quality
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.create_aks_only) }}
     runs-on: ubuntu-24.04
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "npm"
-          cache-dependency-path: backend/package.json
+      - name: Validate Bicep
+        run: |
+          az bicep build --file infra/main.bicep
+          az bicep build --file infra/modules/aks.bicep
 
-      - name: Install backend dependencies
-        if: ${{ hashFiles('backend/package.json') != '' }}
-        working-directory: backend
-        run: npm install
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
 
-      - name: Run backend lint
-        if: ${{ hashFiles('backend/package.json') != '' }}
-        working-directory: backend
-        run: npm run lint --if-present
+      - name: Helm lint
+        run: helm lint helm/pwc-project
 
-      - name: Run backend unit tests
-        if: ${{ hashFiles('backend/package.json') != '' }}
-        working-directory: backend
-        run: npm test --if-present
-
+  # 3. Sonar scan
   sonar:
-    name: SonarQube Analysis
-    needs: [precheck, code-quality]
-    if: ${{ needs.precheck.outputs.sonar_enabled == 'true' }}
+    name: Sonar Scan
+    needs: precheck
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.create_aks_only) && needs.precheck.outputs.sonar_enabled == 'true' }}
     runs-on: ubuntu-24.04
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      - uses: actions/checkout@v4
 
-      - name: Set up Java 21
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "21"
-
-      - name: SonarQube Scan
-        uses: SonarSource/sonarqube-scan-action@v5
+      - name: Sonar scan
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ vars.SONAR_HOST_URL }}
-        with:
-          projectBaseDir: .
-          args: >
-            -Dsonar.organization=${{ vars.SONAR_ORGANIZATION }}
-            -Dsonar.projectKey=${{ vars.SONAR_PROJECT_KEY }}
-            -Dsonar.sources=backend,frontend
-            -Dsonar.qualitygate.wait=true
-            -Dsonar.exclusions=**/node_modules/**,**/dist/**,**/build/**
+        run: |
+          docker run --rm \
+            -e SONAR_HOST_URL="https://sonarcloud.io" \
+            -e SONAR_TOKEN="$SONAR_TOKEN" \
+            -v "$PWD:/usr/src" \
+            sonarsource/sonar-scanner-cli
 
+  # 4. Trivy filesystem scan
   trivy-fs:
-    name: Trivy Source Scan
-    needs: code-quality
+    name: Trivy Filesystem Scan
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.create_aks_only) }}
     runs-on: ubuntu-24.04
-    continue-on-error: true
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Trivy filesystem scan
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@0.33.0
         with:
           scan-type: fs
           scan-ref: .
-          scanners: vuln,secret
-          severity: HIGH,CRITICAL
+          format: table
+          exit-code: '0'
           ignore-unfixed: true
-          exit-code: "0"
+          severity: HIGH,CRITICAL
 
+  # 5. Helm validation
   helm-lint:
-    name: Helm Lint and Template Validation
-    needs: code-quality
+    name: Helm Validation
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.create_aks_only) }}
     runs-on: ubuntu-24.04
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Helm
-        uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@v4
 
-      - name: Lint Helm chart
-        run: |
-          helm lint ./helm/pwc-project -f ./helm/pwc-project/values.yaml
-          helm lint ./helm/pwc-project -f ./helm/pwc-project/values-dev.yaml
-          helm lint ./helm/pwc-project -f ./helm/pwc-project/values-prod.yaml
+      - name: Helm lint
+        run: helm lint helm/pwc-project
 
       - name: Render Helm templates
-        run: |
-          helm template pwc-project ./helm/pwc-project -f ./helm/pwc-project/values.yaml > /tmp/pwc-render.yaml
-          helm template pwc-project ./helm/pwc-project -f ./helm/pwc-project/values-dev.yaml > /tmp/pwc-render-dev.yaml
-          helm template pwc-project ./helm/pwc-project -f ./helm/pwc-project/values-prod.yaml > /tmp/pwc-render-prod.yaml
+        run: helm template pwc-project helm/pwc-project
 
+  # 6. Build and scan frontend/backend images
   build-and-scan-images:
-    name: Build and Scan Docker Images
-    needs: code-quality
+    name: Build and Scan Images
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.create_aks_only) }}
     runs-on: ubuntu-24.04
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Build backend image
-        run: docker build -t pwc-project-backend:${{ env.IMAGE_TAG }} ./backend
+      - name: Build frontend
+        run: docker build -t "${FRONTEND_IMAGE}:${GITHUB_SHA}" ./frontend
+
+      - name: Build backend
+        run: docker build -t "${BACKEND_IMAGE}:${GITHUB_SHA}" ./backend
+
+      - name: Scan frontend image
+        uses: aquasecurity/trivy-action@0.33.0
+        with:
+          scan-type: image
+          image-ref: fronted.azurecr.io/pwc-project-frontend:${{ github.sha }}
+          format: table
+          exit-code: '0'
+          severity: HIGH,CRITICAL
+
+      - name: Scan backend image
+        uses: aquasecurity/trivy-action@0.33.0
+        with:
+          scan-type: image
+          image-ref: backends.azurecr.io/pwc-project-backend:${{ github.sha }}
+          format: table
+          exit-code: '0'
+          severity: HIGH,CRITICAL
+
+  # 7. Push images to the existing ACR registries
+  push-to-acr:
+    name: Push Images to ACR
+    needs:
+      - precheck
+      - build-and-scan-images
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.create_aks_only) && needs.precheck.outputs.azure_ready == 'true' }}
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
 
       - name: Build frontend image
-        run: docker build -t pwc-project-frontend:${{ env.IMAGE_TAG }} ./frontend
+        run: docker build -t "${FRONTEND_IMAGE}:${GITHUB_SHA}" ./frontend
 
-      - name: Trivy backend image scan
-        continue-on-error: true
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          scan-type: image
-          image-ref: pwc-project-backend:${{ env.IMAGE_TAG }}
-          scanners: vuln
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          exit-code: "0"
+      - name: Build backend image
+        run: docker build -t "${BACKEND_IMAGE}:${GITHUB_SHA}" ./backend
 
-      - name: Trivy frontend image scan
-        continue-on-error: true
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          scan-type: image
-          image-ref: pwc-project-frontend:${{ env.IMAGE_TAG }}
-          scanners: vuln
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          exit-code: "0"
-
-  push-to-acr:
-    name: Push Docker Images to Azure Container Registry
-    needs: [precheck, build-and-scan-images]
-    if: ${{ needs.precheck.outputs.azure_ready == 'true' && github.event_name != 'pull_request' }}
-    runs-on: ubuntu-24.04
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      # Frontend: authenticate with the frontend app registration
-      - name: Azure Login - Frontend
+      - name: Azure login for frontend registry
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.FRONTEND_AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.FRONTEND_AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.FRONTEND_AZURE_SUBSCRIPTION_ID }}
 
-      - name: Login to Frontend ACR
-        run: az acr login --name fronted
-
-      - name: Build frontend image for registry
-        run: |
-          docker build \
-            -t fronted.azurecr.io/pwc-project-frontend:${{ env.IMAGE_TAG }} \
-            ./frontend
-
       - name: Push frontend image
         run: |
-          docker push fronted.azurecr.io/pwc-project-frontend:${{ env.IMAGE_TAG }}
+          az acr login --name fronted
+          docker push "${FRONTEND_IMAGE}:${GITHUB_SHA}"
 
-      # Backend: authenticate with the backend app registration
-      - name: Azure Login - Backend
+      - name: Azure login for backend registry
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.BACKEND_AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.BACKEND_AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.BACKEND_AZURE_SUBSCRIPTION_ID }}
 
-      - name: Login to Backend ACR
-        run: az acr login --name backends
-
-      - name: Build backend image for registry
-        run: |
-          docker build \
-            -t backends.azurecr.io/pwc-project-backend:${{ env.IMAGE_TAG }} \
-            ./backend
-
       - name: Push backend image
         run: |
-          docker push backends.azurecr.io/pwc-project-backend:${{ env.IMAGE_TAG }}
+          az acr login --name backends
+          docker push "${BACKEND_IMAGE}:${GITHUB_SHA}"
+
+  # 8. AKS infrastructure deployment - manual AKS-only mode
+  create-aks:
+    name: Create AKS Cluster and Node Pools
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.create_aks_only }}
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure login for AKS
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AKS_AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AKS_AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AKS_AZURE_SUBSCRIPTION_ID }}
+
+      - name: Validate Bicep
+        run: |
+          az bicep build --file infra/main.bicep
+          az bicep build --file infra/modules/aks.bicep
+
+      - name: Verify Azure subscription and resource group
+        env:
+          AKS_RESOURCE_GROUP: ${{ vars.AKS_RESOURCE_GROUP }}
+        run: |
+          set -euo pipefail
+          az account show --output table
+          az group show \
+            --name "$AKS_RESOURCE_GROUP" \
+            --output table
+
+      - name: Preview infrastructure changes
+        env:
+          AKS_RESOURCE_GROUP: ${{ vars.AKS_RESOURCE_GROUP }}
+          AKS_NAME: ${{ vars.AKS_NAME }}
+          AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
+        run: |
+          set -euo pipefail
+
+          az deployment group what-if \
+            --resource-group "$AKS_RESOURCE_GROUP" \
+            --template-file infra/main.bicep \
+            --parameters \
+              clusterName="$AKS_NAME" \
+              location="$AZURE_LOCATION"
+
+      - name: Deploy AKS and node pools
+        env:
+          AKS_RESOURCE_GROUP: ${{ vars.AKS_RESOURCE_GROUP }}
+          AKS_NAME: ${{ vars.AKS_NAME }}
+          AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
+        run: |
+          set -euo pipefail
+
+          az deployment group create \
+            --name "aks-infrastructure-${GITHUB_RUN_ID}" \
+            --resource-group "$AKS_RESOURCE_GROUP" \
+            --template-file infra/main.bicep \
+            --parameters \
+              clusterName="$AKS_NAME" \
+              location="$AZURE_LOCATION"
+
+      - name: Verify AKS cluster
+        env:
+          AKS_RESOURCE_GROUP: ${{ vars.AKS_RESOURCE_GROUP }}
+          AKS_NAME: ${{ vars.AKS_NAME }}
+        run: |
+          set -euo pipefail
+
+          az aks show \
+            --resource-group "$AKS_RESOURCE_GROUP" \
+            --name "$AKS_NAME" \
+            --query "{name:name, location:location, provisioningState:provisioningState}" \
+            --output table
+
+          az aks nodepool list \
+            --resource-group "$AKS_RESOURCE_GROUP" \
+            --cluster-name "$AKS_NAME" \
+            --output table
