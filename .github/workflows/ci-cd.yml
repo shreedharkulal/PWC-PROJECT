@@ -295,7 +295,7 @@ jobs:
             "${BACKEND_ACR_LOGIN_SERVER}/${BACKEND_IMAGE}:${IMAGE_TAG}"
 
   # --------------------------------------------------
-  # 8. DEV DEPLOYMENT - UPDATE VALUES AND APPLY ARGOCD APP
+  # 8. DEV DEPLOYMENT - UPDATE VALUES AND ENSURE ARGOCD APP EXISTS
   # --------------------------------------------------
   deploy-dev:
     name: Update Dev GitOps Values and ensure ArgoCD app exists
