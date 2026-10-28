@@ -2,7 +2,7 @@ frontend:
   replicaCount: 2
   image:
     repository: fronted.azurecr.io/pwc-project-frontend
-    tag: "8d618e6c5bad8b61aab72e4cd1455f02ec9cfda1"
+    tag: "c74bd3fe80f550afbeeb06307379d2a9db482d40"
     pullPolicy: IfNotPresent
   resources:
     requests:
@@ -11,12 +11,11 @@ frontend:
     limits:
       cpu: 500m
       memory: 256Mi
-
 backend:
   replicaCount: 2
   image:
     repository: backends.azurecr.io/backends
-    tag: "8d618e6c5bad8b61aab72e4cd1455f02ec9cfda1"
+    tag: "c74bd3fe80f550afbeeb06307379d2a9db482d40"
     pullPolicy: IfNotPresent
   resources:
     requests:
