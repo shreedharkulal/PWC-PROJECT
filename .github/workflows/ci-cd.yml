@@ -26,9 +26,6 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # --------------------------------------------------
-  # 1. CODE QUALITY AND BACKEND TESTS
-  # --------------------------------------------------
   code-quality:
     name: Code Quality and Backend Tests
     runs-on: ubuntu-24.04
@@ -57,9 +54,6 @@ jobs:
         working-directory: backend
         run: npm test --if-present
 
-  # --------------------------------------------------
-  # 2. SONARQUBE ANALYSIS
-  # --------------------------------------------------
   sonar:
     name: SonarQube Analysis
     needs: code-quality
@@ -99,9 +93,6 @@ jobs:
             -Dsonar.qualitygate.wait=true
             -Dsonar.exclusions=**/node_modules/**,**/dist/**,**/build/**
 
-  # --------------------------------------------------
-  # 3. TRIVY FILESYSTEM SCAN
-  # --------------------------------------------------
   trivy-fs:
     name: Trivy Source Scan
     needs: code-quality
@@ -122,9 +113,6 @@ jobs:
           ignore-unfixed: true
           exit-code: "0"
 
-  # --------------------------------------------------
-  # 4. HELM VALIDATION
-  # --------------------------------------------------
   helm-lint:
     name: Helm Lint and Template Validation
     needs: code-quality
@@ -162,9 +150,6 @@ jobs:
             -f ./helm/pwc-project/values-prod.yaml \
             > /tmp/pwc-render-prod.yaml
 
-  # --------------------------------------------------
-  # 5. BUILD AND SCAN BOTH IMAGES
-  # --------------------------------------------------
   build-and-scan-images:
     name: Build and Scan Docker Images
     needs: [code-quality, helm-lint]
@@ -208,9 +193,6 @@ jobs:
           ignore-unfixed: true
           exit-code: "0"
 
-  # --------------------------------------------------
-  # 6. PUSH FRONTEND IMAGE TO FRONTEND ACR
-  # --------------------------------------------------
   push-frontend-to-acr:
     name: Push Frontend Image to Frontend ACR
     needs: [build-and-scan-images, sonar, trivy-fs]
@@ -251,9 +233,6 @@ jobs:
           docker push \
             "${FRONTEND_ACR_LOGIN_SERVER}/${FRONTEND_IMAGE}:${IMAGE_TAG}"
 
-  # --------------------------------------------------
-  # 7. PUSH BACKEND IMAGE TO BACKEND ACR
-  # --------------------------------------------------
   push-backend-to-acr:
     name: Push Backend Image to Backend ACR
     needs: [build-and-scan-images, sonar, trivy-fs]
@@ -294,11 +273,8 @@ jobs:
           docker push \
             "${BACKEND_ACR_LOGIN_SERVER}/${BACKEND_IMAGE}:${IMAGE_TAG}"
 
-  # --------------------------------------------------
-  # 8. DEV DEPLOYMENT - UPDATE VALUES AND ENSURE ARGOCD APP EXISTS
-  # --------------------------------------------------
   deploy-dev:
-    name: Update Dev GitOps Values and ensure ArgoCD app exists
+    name: Update Dev GitOps Values and trigger Argo CD
     needs: [push-frontend-to-acr, push-backend-to-acr]
 
     if: ${{ github.ref == 'refs/heads/main' }}
@@ -317,10 +293,9 @@ jobs:
           sudo wget -q \
             https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64 \
             -O /usr/local/bin/yq
-
           sudo chmod +x /usr/local/bin/yq
 
-      - name: Update Dev image repositories and tags
+      - name: Update Dev values
         env:
           IMAGE_TAG: ${{ github.sha }}
         run: |
@@ -331,7 +306,7 @@ jobs:
             .backend.image.tag = strenv(IMAGE_TAG)
           ' helm/pwc-project/values-dev.yaml
 
-      - name: Commit and push Dev values
+      - name: Commit and push dev values
         env:
           IMAGE_TAG: ${{ github.sha }}
         run: |
@@ -349,36 +324,11 @@ jobs:
           git pull --rebase origin main
           git push origin HEAD:main
 
-      - name: Azure login for AKS access
-        uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.AKS_AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AKS_AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AKS_AZURE_SUBSCRIPTION_ID }}
-
-      - name: Get AKS credentials
-        run: |
-          az aks get-credentials \
-            --resource-group "${{ vars.AKS_RESOURCE_GROUP }}" \
-            --name "${{ vars.AKS_NAME }}" \
-            --overwrite-existing
-
-      - name: Apply ArgoCD Application manifest
-        run: |
-          kubectl apply -f argocd/dev.yaml -n argocd
-
-  # --------------------------------------------------
-  # 9. PRODUCTION DEPLOYMENT
-  # --------------------------------------------------
   deploy-prod:
     name: Production Deployment (Approval Required)
-    needs: [push-frontend-to-acr, push-backend-to-acr, deploy-dev]
+    needs: [deploy-dev]
 
-    if: >-
-      ${{
-        github.event_name == 'workflow_dispatch' &&
-        github.ref == 'refs/heads/main'
-      }}
+    if: ${{ github.ref == 'refs/heads/main' }}
 
     runs-on: ubuntu-24.04
     environment: production
@@ -395,10 +345,9 @@ jobs:
           sudo wget -q \
             https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64 \
             -O /usr/local/bin/yq
-
           sudo chmod +x /usr/local/bin/yq
 
-      - name: Update Production image repositories and tags
+      - name: Update Production values
         env:
           IMAGE_TAG: ${{ github.sha }}
         run: |
@@ -409,7 +358,7 @@ jobs:
             .backend.image.tag = strenv(IMAGE_TAG)
           ' helm/pwc-project/values-prod.yaml
 
-      - name: Commit and push Production values
+      - name: Commit and push production values
         env:
           IMAGE_TAG: ${{ github.sha }}
         run: |
