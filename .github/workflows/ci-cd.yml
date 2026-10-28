@@ -59,8 +59,6 @@ jobs:
 
   # --------------------------------------------------
   # 2. SONARQUBE ANALYSIS
-  # Configure the SONAR_* variables and SONAR_TOKEN secret.
-  # If Sonar variables are absent, this job is skipped.
   # --------------------------------------------------
   sonar:
     name: SonarQube Analysis
@@ -103,7 +101,6 @@ jobs:
 
   # --------------------------------------------------
   # 3. TRIVY FILESYSTEM SCAN
-  # Findings are reported but do not block the pipeline.
   # --------------------------------------------------
   trivy-fs:
     name: Trivy Source Scan
@@ -213,7 +210,6 @@ jobs:
 
   # --------------------------------------------------
   # 6. PUSH FRONTEND IMAGE TO FRONTEND ACR
-  # Frontend credentials are separate from backend credentials.
   # --------------------------------------------------
   push-frontend-to-acr:
     name: Push Frontend Image to Frontend ACR
@@ -257,7 +253,6 @@ jobs:
 
   # --------------------------------------------------
   # 7. PUSH BACKEND IMAGE TO BACKEND ACR
-  # Backend repository: backends.azurecr.io/backends
   # --------------------------------------------------
   push-backend-to-acr:
     name: Push Backend Image to Backend ACR
@@ -300,12 +295,10 @@ jobs:
             "${BACKEND_ACR_LOGIN_SERVER}/${BACKEND_IMAGE}:${IMAGE_TAG}"
 
   # --------------------------------------------------
-  # 8. DEV DEPLOYMENT
-  # Updates values-dev.yaml.
-  # Argo CD detects the Git change and auto-syncs Dev.
+  # 8. DEV DEPLOYMENT - UPDATE VALUES AND APPLY ARGOCD APP
   # --------------------------------------------------
   deploy-dev:
-    name: Update Dev GitOps Values (Argo CD Auto-Sync)
+    name: Update Dev GitOps Values and ensure ArgoCD app exists
     needs: [push-frontend-to-acr, push-backend-to-acr]
 
     if: ${{ github.ref == 'refs/heads/main' }}
@@ -356,10 +349,26 @@ jobs:
           git pull --rebase origin main
           git push origin HEAD:main
 
+      - name: Azure login for AKS access
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AKS_AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AKS_AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AKS_AZURE_SUBSCRIPTION_ID }}
+
+      - name: Get AKS credentials
+        run: |
+          az aks get-credentials \
+            --resource-group "${{ vars.AKS_RESOURCE_GROUP }}" \
+            --name "${{ vars.AKS_NAME }}" \
+            --overwrite-existing
+
+      - name: Apply ArgoCD Application manifest
+        run: |
+          kubectl apply -f argocd/dev.yaml -n argocd
+
   # --------------------------------------------------
   # 9. PRODUCTION DEPLOYMENT
-  # Runs only when manually dispatched from main.
-  # Configure required reviewers on GitHub's production environment.
   # --------------------------------------------------
   deploy-prod:
     name: Production Deployment (Approval Required)
@@ -417,76 +426,3 @@ jobs:
           git commit -m "chore(prod): release images ${IMAGE_TAG}"
           git pull --rebase origin main
           git push origin HEAD:main
-
-  # --------------------------------------------------
-  # 10. AKS BICEP INFRASTRUCTURE JOBS
-  # Intentionally disabled because AKS already exists.
-  # Uncomment and configure when infrastructure deployment is needed.
-  # --------------------------------------------------
-
-  # validate-bicep:
-  #   name: Validate Bicep
-  #   runs-on: ubuntu-24.04
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - run: az bicep build --file infra/main.bicep
-  #     - run: az bicep build --file infra/modules/aks.bicep
-
-  # aks-what-if:
-  #   name: AKS Bicep What-If
-  #   needs: validate-bicep
-  #   runs-on: ubuntu-24.04
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: azure/login@v2
-  #       with:
-  #         client-id: ${{ secrets.AKS_AZURE_CLIENT_ID }}
-  #         tenant-id: ${{ secrets.AKS_AZURE_TENANT_ID }}
-  #         subscription-id: ${{ secrets.AKS_AZURE_SUBSCRIPTION_ID }}
-  #     - run: |
-  #         az deployment group what-if \
-  #           --resource-group "${{ vars.AKS_RESOURCE_GROUP }}" \
-  #           --template-file infra/main.bicep \
-  #           --parameters clusterName="${{ vars.AKS_NAME }}" \
-  #           location="${{ vars.AZURE_LOCATION }}"
-
-  # deploy-aks:
-  #   name: Deploy AKS Infrastructure
-  #   needs: aks-what-if
-  #   runs-on: ubuntu-24.04
-  #   environment: aks-infrastructure
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: azure/login@v2
-  #       with:
-  #         client-id: ${{ secrets.AKS_AZURE_CLIENT_ID }}
-  #         tenant-id: ${{ secrets.AKS_AZURE_TENANT_ID }}
-  #         subscription-id: ${{ secrets.AKS_AZURE_SUBSCRIPTION_ID }}
-  #     - run: |
-  #         az deployment group create \
-  #           --name "aks-infrastructure-${GITHUB_RUN_ID}" \
-  #           --resource-group "${{ vars.AKS_RESOURCE_GROUP }}" \
-  #           --template-file infra/main.bicep \
-  #           --parameters clusterName="${{ vars.AKS_NAME }}" \
-  #           location="${{ vars.AZURE_LOCATION }}"
-
-  # verify-aks:
-  #   name: Verify AKS
-  #   needs: deploy-aks
-  #   runs-on: ubuntu-24.04
-  #   steps:
-  #     - uses: azure/login@v2
-  #       with:
-  #         client-id: ${{ secrets.AKS_AZURE_CLIENT_ID }}
-  #         tenant-id: ${{ secrets.AKS_AZURE_TENANT_ID }}
-  #         subscription-id: ${{ secrets.AKS_AZURE_SUBSCRIPTION_ID }}
-  #     - run: |
-  #         az aks show \
-  #           --resource-group "${{ vars.AKS_RESOURCE_GROUP }}" \
-  #           --name "${{ vars.AKS_NAME }}" \
-  #           --output table
-  #
-  #         az aks nodepool list \
-  #           --resource-group "${{ vars.AKS_RESOURCE_GROUP }}" \
-  #           --cluster-name "${{ vars.AKS_NAME }}" \
-  #           --output table
