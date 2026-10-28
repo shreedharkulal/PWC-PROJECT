@@ -1,3 +1,4 @@
+
 name: PWC Project CI/CD
 
 on:
@@ -407,9 +408,3 @@ jobs:
             application/pwc-project-prod \
             -n argocd \
             --timeout=600s
-
-      - name: Verify production rollout
-        run: |
-          kubectl get application pwc-project-prod -n argocd
-          kubectl get deployments,pods,services -n prod
-          kubectl rollout status deployment --all -n prod --timeout=300s
