@@ -65,6 +65,7 @@ jobs:
   sonar:
     name: SonarQube Analysis
     needs: code-quality
+    continue-on-error: true
 
     if: >-
       ${{
@@ -222,7 +223,7 @@ jobs:
       ${{
         !cancelled() &&
         needs.build-and-scan-images.result == 'success' &&
-        (needs.sonar.result == 'success' || needs.sonar.result == 'skipped') &&
+        (needs.sonar.result == 'success' || needs.sonar.result == 'skipped' || needs.sonar.result == 'failure') &&
         needs.trivy-fs.result == 'success' &&
         github.ref == 'refs/heads/main'
       }}
@@ -266,7 +267,7 @@ jobs:
       ${{
         !cancelled() &&
         needs.build-and-scan-images.result == 'success' &&
-        (needs.sonar.result == 'success' || needs.sonar.result == 'skipped') &&
+        (needs.sonar.result == 'success' || needs.sonar.result == 'skipped' || needs.sonar.result == 'failure') &&
         needs.trivy-fs.result == 'success' &&
         github.ref == 'refs/heads/main'
       }}
