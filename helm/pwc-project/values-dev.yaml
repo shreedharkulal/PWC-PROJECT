@@ -4,6 +4,13 @@ frontend:
     repository: myregistry.azurecr.io/pwc-project-frontend
     tag: "initial"
     pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
 
 backend:
   replicaCount: 1
@@ -11,4 +18,12 @@ backend:
     repository: myregistry.azurecr.io/pwc-project-backend
     tag: "initial"
     pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
 
