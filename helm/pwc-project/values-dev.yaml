@@ -2,10 +2,13 @@ frontend:
   replicaCount: 1
   image:
     repository: myregistry.azurecr.io/pwc-project-frontend
-    tag: initial
+    tag: "initial"
+    pullPolicy: IfNotPresent
 
 backend:
   replicaCount: 1
   image:
     repository: myregistry.azurecr.io/pwc-project-backend
-    tag: initial
+    tag: "initial"
+    pullPolicy: IfNotPresent
+
