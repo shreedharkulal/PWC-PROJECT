@@ -369,9 +369,47 @@ jobs:
 
           if git diff --cached --quiet; then
             echo "Production image tags are already up to date"
-            exit 0
+          else
+            git commit -m "chore(prod): release images ${IMAGE_TAG}"
+            git pull --rebase origin main
+            git push origin HEAD:main
           fi
 
-          git commit -m "chore(prod): release images ${IMAGE_TAG}"
-          git pull --rebase origin main
-          git push origin HEAD:main
+      - name: Azure Login for AKS
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AKS_AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AKS_AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AKS_AZURE_SUBSCRIPTION_ID }}
+
+      - name: Set AKS context
+        uses: azure/aks-set-context@v4
+        with:
+          resource-group: demo
+          cluster-name: aks-pwc-project
+
+      - name: Create or update production Argo CD Application
+        run: |
+          kubectl apply -f argocd/prod.yaml
+
+      - name: Wait for Argo CD sync
+        run: |
+          kubectl wait \
+            --for=jsonpath='{.status.sync.status}'=Synced \
+            application/pwc-project-prod \
+            -n argocd \
+            --timeout=600s
+
+      - name: Wait for Argo CD application health
+        run: |
+          kubectl wait \
+            --for=jsonpath='{.status.health.status}'=Healthy \
+            application/pwc-project-prod \
+            -n argocd \
+            --timeout=600s
+
+      - name: Verify production rollout
+        run: |
+          kubectl get application pwc-project-prod -n argocd
+          kubectl get deployments,pods,services -n prod
+          kubectl rollout status deployment --all -n prod --timeout=300s
