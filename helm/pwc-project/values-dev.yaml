@@ -28,6 +28,10 @@ backend:
 
 database:
   enabled: true
+  image:
+    repository: postgres
+    tag: "15"
+    pullPolicy: IfNotPresent
   username: pwcdev
   password: DevDbPass123!
   database: pwcdev
