@@ -11,6 +11,7 @@ frontend:
     limits:
       cpu: 500m
       memory: 256Mi
+
 backend:
   replicaCount: 1
   image:
@@ -24,3 +25,21 @@ backend:
     limits:
       cpu: 500m
       memory: 256Mi
+
+database:
+  enabled: true
+  username: pwcdev
+  password: DevDbPass123!
+  database: pwcdev
+  service:
+    port: 5432
+  persistence:
+    enabled: true
+    size: 5Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
