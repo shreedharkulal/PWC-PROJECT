@@ -1,3 +1,4 @@
+
 {{- if and .Values.database (default false .Values.database.enabled) }}
 apiVersion: v1
 kind: Secret
@@ -34,6 +35,7 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: database
 spec:
+  type: ClusterIP
   selector:
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: database
@@ -66,8 +68,11 @@ spec:
           image: "{{ .Values.database.image.repository }}:{{ .Values.database.image.tag }}"
           imagePullPolicy: {{ .Values.database.image.pullPolicy }}
           ports:
-            - containerPort: 5432
+            - name: postgres
+              containerPort: 5432
           env:
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
             - name: POSTGRES_DB
               valueFrom:
                 secretKeyRef:
