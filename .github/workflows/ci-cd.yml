@@ -127,7 +127,6 @@ jobs:
 
       - name: Lint Helm chart
         run: |
-
           helm lint ./helm/pwc-project \
             -f ./helm/pwc-project/values-dev.yaml
 
@@ -136,10 +135,6 @@ jobs:
 
       - name: Render Helm templates
         run: |
-          helm template pwc-project ./helm/pwc-project \
-            -f ./helm/pwc-project/values.yaml \
-            > /tmp/pwc-render.yaml
-
           helm template pwc-project ./helm/pwc-project \
             -f ./helm/pwc-project/values-dev.yaml \
             > /tmp/pwc-render-dev.yaml
