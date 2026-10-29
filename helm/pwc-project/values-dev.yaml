@@ -27,7 +27,7 @@ backend:
       memory: 256Mi
 
 database:
-  enabled: true 
+  enabled: true
   image:
     repository: postgres
     tag: "15"
