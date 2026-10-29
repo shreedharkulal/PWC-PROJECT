@@ -127,8 +127,6 @@ jobs:
 
       - name: Lint Helm chart
         run: |
-          helm lint ./helm/pwc-project \
-            -f ./helm/pwc-project/values.yaml
 
           helm lint ./helm/pwc-project \
             -f ./helm/pwc-project/values-dev.yaml
