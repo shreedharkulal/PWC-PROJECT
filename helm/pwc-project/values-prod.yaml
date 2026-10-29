@@ -11,6 +11,7 @@ frontend:
     limits:
       cpu: 500m
       memory: 256Mi
+
 backend:
   replicaCount: 2
   image:
@@ -24,3 +25,25 @@ backend:
     limits:
       cpu: 500m
       memory: 256Mi
+
+database:
+  enabled: true
+  image:
+    repository: postgres
+    tag: "15"
+    pullPolicy: IfNotPresent
+  username: pwcprod
+  password: ProdDbPass123!
+  database: pwcprod
+  service:
+    port: 5432
+  persistence:
+    enabled: true
+    size: 20Gi
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
