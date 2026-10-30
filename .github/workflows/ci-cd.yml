@@ -90,6 +90,7 @@ jobs:
             -Dsonar.organization=${{ vars.SONAR_ORGANIZATION }}
             -Dsonar.projectKey=${{ vars.SONAR_PROJECT_KEY }}
             -Dsonar.sources=backend,frontend
+            -Dsonar.qualitygate.wait=true
             -Dsonar.exclusions=**/node_modules/**,**/dist/**,**/build/**
 
   trivy-fs:
