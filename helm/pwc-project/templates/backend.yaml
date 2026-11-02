@@ -20,51 +20,57 @@ spec:
         - name: backend
           image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag }}"
           imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
+
           env:
             - name: DB_HOST
-              value: {{ .Release.Name }}-db
+              value: {{ printf "%s-db" .Release.Name | quote }}
+
             - name: DB_PORT
-              value: "{{ .Values.database.service.port }}"
+              value: {{ .Values.database.service.port | quote }}
+
             - name: DB_NAME
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Release.Name }}-db-secret
-                  key: POSTGRES_DB
+              value: {{ .Values.database.database | quote }}
+
             - name: DB_USER
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Release.Name }}-db-secret
-                  key: POSTGRES_USER
+              value: {{ .Values.database.username | quote }}
+
             - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Release.Name }}-db-secret
+                  name: pwc-db-keyvault-secret
                   key: POSTGRES_PASSWORD
+
             - name: DATABASE_URL
               value: "postgresql://$(DB_USER):$(DB_PASSWORD)@{{ .Release.Name }}-db:{{ .Values.database.service.port }}/$(DB_NAME)"
+
           ports:
             - name: http
               containerPort: 3000
+
           readinessProbe:
             httpGet:
               path: /api/health
               port: http
             initialDelaySeconds: 3
             periodSeconds: 5
+
           livenessProbe:
             httpGet:
               path: /api/health
               port: http
             initialDelaySeconds: 10
             periodSeconds: 10
+
           resources:
             {{- toYaml .Values.backend.resources | nindent 12 }}
+
           {{- if .Values.keyVault.enabled }}
           volumeMounts:
             - name: keyvault-secrets
               mountPath: {{ .Values.keyVault.mountPath | quote }}
               readOnly: true
           {{- end }}
+
       {{- if .Values.keyVault.enabled }}
       volumes:
         - name: keyvault-secrets
@@ -74,11 +80,14 @@ spec:
             volumeAttributes:
               secretProviderClass: {{ .Values.keyVault.secretProviderClass | quote }}
       {{- end }}
+
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: {{ include "pwc-project.fullname" . }}-backend
+  labels:
+    {{- include "pwc-project.labels" . | nindent 4 }}
 spec:
   type: ClusterIP
   selector:
