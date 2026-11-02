@@ -59,17 +59,21 @@ spec:
             periodSeconds: 10
           resources:
             {{- toYaml .Values.backend.resources | nindent 12 }}
+          {{- if .Values.keyVault.enabled }}
           volumeMounts:
             - name: keyvault-secrets
-              mountPath: /mnt/secrets-store
+              mountPath: {{ .Values.keyVault.mountPath | quote }}
               readOnly: true
+          {{- end }}
+      {{- if .Values.keyVault.enabled }}
       volumes:
         - name: keyvault-secrets
           csi:
             driver: secrets-store.csi.k8s.io
             readOnly: true
             volumeAttributes:
-              secretProviderClass: pwc-demo-keyvault
+              secretProviderClass: {{ .Values.keyVault.secretProviderClass | quote }}
+      {{- end }}
 ---
 apiVersion: v1
 kind: Service
