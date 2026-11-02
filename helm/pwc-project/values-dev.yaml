@@ -11,6 +11,7 @@ frontend:
     limits:
       cpu: 500m
       memory: 256Mi
+
 backend:
   replicaCount: 1
   image:
@@ -24,19 +25,20 @@ backend:
     limits:
       cpu: 500m
       memory: 256Mi
+
 keyVault:
   enabled: true
   secretProviderClass: pwc-demo-keyvault
   mountPath: /mnt/secrets-store
+
 database:
   enabled: true
   image:
     repository: postgres
     tag: "15"
     pullPolicy: IfNotPresent
+  database: pwcdev
   username: pwcdev
-  # Do not store the actual database password in Git.
-  # Configure the database chart to retrieve it securely.
   service:
     port: 5432
   persistence:
