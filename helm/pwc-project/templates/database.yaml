@@ -1,18 +1,4 @@
-
 {{- if and .Values.database (default false .Values.database.enabled) }}
-apiVersion: v1
-kind: Secret
-metadata:
-  name: {{ .Release.Name }}-db-secret
-  labels:
-    app.kubernetes.io/instance: {{ .Release.Name }}
-    app.kubernetes.io/component: database
-type: Opaque
-stringData:
-  POSTGRES_DB: {{ .Values.database.database | quote }}
-  POSTGRES_USER: {{ .Values.database.username | quote }}
-  POSTGRES_PASSWORD: {{ .Values.database.password | quote }}
----
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -74,19 +60,13 @@ spec:
             - name: PGDATA
               value: /var/lib/postgresql/data/pgdata
             - name: POSTGRES_DB
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Release.Name }}-db-secret
-                  key: POSTGRES_DB
+              value: {{ .Values.database.database | quote }}
             - name: POSTGRES_USER
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Release.Name }}-db-secret
-                  key: POSTGRES_USER
+              value: {{ .Values.database.username | quote }}
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Release.Name }}-db-secret
+                  name: pwc-db-keyvault-secret
                   key: POSTGRES_PASSWORD
           volumeMounts:
             - name: postgres-storage
