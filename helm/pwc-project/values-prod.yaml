@@ -11,6 +11,7 @@ frontend:
     limits:
       cpu: 500m
       memory: 256Mi
+
 backend:
   replicaCount: 2
   image:
@@ -24,6 +25,12 @@ backend:
     limits:
       cpu: 500m
       memory: 256Mi
+
+keyVault:
+  enabled: false
+  secretProviderClass: pwc-demo-keyvault
+  mountPath: /mnt/secrets-store
+
 database:
   enabled: true
   image:
@@ -31,8 +38,7 @@ database:
     tag: "15"
     pullPolicy: IfNotPresent
   username: pwcprod
-  password: ProdDbPass123!
-  database: pwcprod
+  # Store the actual database password securely, not in Git.
   service:
     port: 5432
   persistence:
