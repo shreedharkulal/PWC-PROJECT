@@ -2,7 +2,7 @@ frontend:
   replicaCount: 1
   image:
     repository: fronted.azurecr.io/pwc-project-frontend
-    tag: "cb581deee705e2b1cdfce9526d589c7e7b933d25"
+    tag: "0790bdb36c62afa1f77df039d500f159fa6bc082"
     pullPolicy: IfNotPresent
   resources:
     requests:
@@ -11,12 +11,11 @@ frontend:
     limits:
       cpu: 500m
       memory: 256Mi
-
 backend:
   replicaCount: 1
   image:
     repository: backends.azurecr.io/backends
-    tag: "cb581deee705e2b1cdfce9526d589c7e7b933d25"
+    tag: "0790bdb36c62afa1f77df039d500f159fa6bc082"
     pullPolicy: IfNotPresent
   resources:
     requests:
@@ -25,12 +24,10 @@ backend:
     limits:
       cpu: 500m
       memory: 256Mi
-
 keyVault:
   enabled: true
   secretProviderClass: pwc-demo-keyvault
   mountPath: /mnt/secrets-store
-
 database:
   enabled: true
   image:
