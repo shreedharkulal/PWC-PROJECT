@@ -2,7 +2,7 @@ frontend:
   replicaCount: 1
   image:
     repository: fronted.azurecr.io/pwc-project-frontend
-    tag: "962a28ce9d610243f6a808df9cbf2c24507d49a0"
+    tag: "ab9e01b59192e20898a77208b32f8ef08c6e0b10"
     pullPolicy: IfNotPresent
   resources:
     requests:
@@ -14,8 +14,8 @@ frontend:
 backend:
   replicaCount: 1
   image:
-    repository: backends.azurecr.io/backend
-    tag: "962a28ce9d610243f6a808df9cbf2c24507d49a0"
+    repository: backends.azurecr.io/backends
+    tag: "ab9e01b59192e20898a77208b32f8ef08c6e0b10"
     pullPolicy: IfNotPresent
   resources:
     requests:
