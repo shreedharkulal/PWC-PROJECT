@@ -14,7 +14,7 @@ frontend:
 backend:
   replicaCount: 1
   image:
-    repository: backends.azurecr.io/backends
+    repository: backends.azurecr.io/backend
     tag: "962a28ce9d610243f6a808df9cbf2c24507d49a0"
     pullPolicy: IfNotPresent
   resources:
