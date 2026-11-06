@@ -10,7 +10,7 @@ jobs:
   gemini-analysis:
     name: Analyze CI/CD Error with Gemini
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
 
     steps:
       - name: Analyze sample error using Gemini
@@ -21,6 +21,7 @@ jobs:
           python - <<'PY'
           import json
           import os
+          import random
           import socket
           import time
           import urllib.error
@@ -29,7 +30,7 @@ jobs:
           api_key = os.environ.get("GEMINI_API_KEY")
           if not api_key:
               raise RuntimeError(
-                  "GEMINI_API_KEY is missing. Add it in "
+                  "GEMINI_API_KEY is missing. Add it under "
                   "Repository Settings > Secrets and variables > Actions."
               )
 
@@ -53,8 +54,9 @@ jobs:
               "input": prompt,
           }
           body = json.dumps(payload).encode("utf-8")
+          result = None
 
-          for attempt in range(1, 4):
+          for attempt in range(1, 7):
               request = urllib.request.Request(
                   url,
                   data=body,
@@ -66,25 +68,47 @@ jobs:
               )
 
               try:
-                  with urllib.request.urlopen(request, timeout=180) as response:
+                  with urllib.request.urlopen(request, timeout=90) as response:
                       result = json.load(response)
                   break
+
               except urllib.error.HTTPError as error:
                   details = error.read().decode("utf-8", errors="replace")
-                  if error.code in (429, 500, 502, 503, 504) and attempt < 3:
-                      print(f"Gemini returned HTTP {error.code}; retrying.")
-                      time.sleep(2 ** attempt)
-                      continue
-                  print(f"Gemini API request failed with HTTP {error.code}:")
-                  print(details[:3000])
-                  raise
+                  retryable = error.code in (429, 500, 502, 503, 504)
+
+                  if not retryable or attempt == 6:
+                      print(f"Gemini API request failed with HTTP {error.code}:")
+                      print(details[:3000])
+                      raise
+
+                  retry_after = error.headers.get("Retry-After")
+                  try:
+                      delay = float(retry_after) if retry_after else 5 * (2 ** (attempt - 1))
+                  except ValueError:
+                      delay = 5 * (2 ** (attempt - 1))
+
+                  delay = min(delay, 60) + random.uniform(0, 3)
+                  print(
+                      f"Gemini returned HTTP {error.code}; retrying in "
+                      f"{delay:.1f}s (attempt {attempt + 1}/6)."
+                  )
+                  time.sleep(delay)
+
               except (TimeoutError, socket.timeout, urllib.error.URLError) as error:
-                  if attempt == 3:
+                  if attempt == 6:
                       raise RuntimeError(
-                          "Gemini request failed after 3 attempts."
+                          "Gemini request failed after 6 attempts."
                       ) from error
-                  print(f"Gemini request error; retrying: {error}")
-                  time.sleep(2 ** attempt)
+
+                  delay = min(5 * (2 ** (attempt - 1)), 60) + random.uniform(0, 3)
+                  print(
+                      f"Gemini connection error; retrying in {delay:.1f}s "
+                      f"(attempt {attempt + 1}/6): {error}"
+                  )
+                  time.sleep(delay)
+
+          if result is None:
+              raise RuntimeError("Gemini did not return a response.")
 
           outputs = result.get("outputs", [])
           answer = "\n".join(
@@ -95,7 +119,6 @@ jobs:
               and isinstance(item.get("text"), str)
           )
 
-          # Accommodate responses that expose the final text directly.
           if not answer and isinstance(result.get("output_text"), str):
               answer = result["output_text"]
 
