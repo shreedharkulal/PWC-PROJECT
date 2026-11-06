@@ -1,7 +1,12 @@
+
 name: Gemini AI Pipeline Analyzer
 
 on:
   workflow_dispatch:
+
+  push:
+    paths:
+      - '.github/workflows/gemini-ai-analysis.yml'
 
 permissions:
   contents: read
@@ -10,9 +15,37 @@ jobs:
   gemini-analysis:
     name: Analyze CI/CD Error with Gemini
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     steps:
+      - name: List available Gemini models
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          url = "https://generativelanguage.googleapis.com/v1beta/models"
+          request = urllib.request.Request(
+              url,
+              headers={
+                  "x-goog-api-key": os.environ["GEMINI_API_KEY"]
+              }
+          )
+
+          with urllib.request.urlopen(request, timeout=30) as response:
+              data = json.load(response)
+
+          print("Models supporting generateContent:")
+          for model in data.get("models", []):
+              name = model.get("name", "").replace("models/", "")
+              methods = model.get("supportedGenerationMethods", [])
+              if "generateContent" in methods:
+                  print(f"- {name}")
+          PY
+
       - name: Analyze sample error using Gemini
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -49,10 +82,7 @@ jobs:
           )
 
           url = "https://generativelanguage.googleapis.com/v1beta/interactions"
-          payload = {
-              "model": model,
-              "input": prompt,
-          }
+          payload = {"model": model, "input": prompt}
           body = json.dumps(payload).encode("utf-8")
           result = None
 
@@ -83,7 +113,10 @@ jobs:
 
                   retry_after = error.headers.get("Retry-After")
                   try:
-                      delay = float(retry_after) if retry_after else 5 * (2 ** (attempt - 1))
+                      delay = (
+                          float(retry_after) if retry_after
+                          else 5 * (2 ** (attempt - 1))
+                      )
                   except ValueError:
                       delay = 5 * (2 ** (attempt - 1))
 
