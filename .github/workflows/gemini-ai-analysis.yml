@@ -4,6 +4,7 @@ on:
   workflow_run:
     workflows:
       - "PWC Project CI/CD"
+      - "Temporary PR Namespace"
     types:
       - completed
     branches:
