@@ -1,0 +1,188 @@
+name: Temporary PR Namespace
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - closed
+
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Pull request number to deploy or clean up"
+        required: true
+        type: string
+      action:
+        description: "Action to perform"
+        required: true
+        type: choice
+        options:
+          - deploy
+          - cleanup
+
+permissions:
+  contents: read
+  pull-requests: read
+  id-token: write
+
+concurrency:
+  group: preview-${{ github.event.pull_request.number || inputs.pr_number }}
+  cancel-in-progress: false
+
+env:
+  AKS_RESOURCE_GROUP: demo
+  AKS_CLUSTER_NAME: aks-pwc-project
+  HELM_CHART_PATH: ./helm/pwc-project
+  FRONTEND_ACR: fronted.azurecr.io
+  BACKEND_ACR: backends.azurecr.io
+  FRONTEND_IMAGE: pwc-project-frontend
+  BACKEND_IMAGE: backends
+
+jobs:
+  preview:
+    name: Deploy temporary environment
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.action != 'closed' ||
+      github.event_name == 'workflow_dispatch' &&
+      inputs.action == 'deploy'
+
+    runs-on: ubuntu-latest
+
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
+      IMAGE_TAG: pr-${{ github.event.pull_request.number || inputs.pr_number }}-${{ github.event.pull_request.head.sha || github.sha }}
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Validate PR number
+        shell: bash
+        run: |
+          if ! [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]; then
+            echo "Invalid PR number"
+            exit 1
+          fi
+
+      - name: Login to Azure for frontend ACR
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.FRONTEND_AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.FRONTEND_AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.FRONTEND_AZURE_SUBSCRIPTION_ID }}
+
+      - name: Build and push frontend image
+        run: |
+          az acr login --name fronted
+
+          docker build \
+            -t "$FRONTEND_ACR/$FRONTEND_IMAGE:$IMAGE_TAG" \
+            ./frontend
+
+          docker push "$FRONTEND_ACR/$FRONTEND_IMAGE:$IMAGE_TAG"
+
+      - name: Login to Azure for backend ACR
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.BACKEND_AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.BACKEND_AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.BACKEND_AZURE_SUBSCRIPTION_ID }}
+
+      - name: Build and push backend image
+        run: |
+          az acr login --name backends
+
+          docker build \
+            -t "$BACKEND_ACR/$BACKEND_IMAGE:$IMAGE_TAG" \
+            ./backend
+
+          docker push "$BACKEND_ACR/$BACKEND_IMAGE:$IMAGE_TAG"
+
+      - name: Login to Azure for AKS deployment
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AKS_AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AKS_AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AKS_AZURE_SUBSCRIPTION_ID }}
+
+      - name: Get AKS credentials
+        run: |
+          az aks get-credentials \
+            --resource-group "$AKS_RESOURCE_GROUP" \
+            --name "$AKS_CLUSTER_NAME" \
+            --overwrite-existing
+
+      - name: Create temporary namespace
+        run: |
+          kubectl create namespace "pr-$PR_NUMBER" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Deploy application using Helm
+        run: |
+          helm upgrade --install "pwc-pr-$PR_NUMBER" "$HELM_CHART_PATH" \
+            --namespace "pr-$PR_NUMBER" \
+            --create-namespace \
+            --values "$HELM_CHART_PATH/values-dev.yaml" \
+            --set frontend.image.repository="$FRONTEND_ACR/$FRONTEND_IMAGE" \
+            --set frontend.image.tag="$IMAGE_TAG" \
+            --set backend.image.repository="$BACKEND_ACR/$BACKEND_IMAGE" \
+            --set backend.image.tag="$IMAGE_TAG" \
+            --set database.enabled=false \
+            --wait \
+            --timeout 10m
+
+      - name: Check deployment status
+        run: |
+          kubectl get deployments,pods,services \
+            -n "pr-$PR_NUMBER"
+
+          kubectl rollout status deployment \
+            --all \
+            -n "pr-$PR_NUMBER" \
+            --timeout=5m
+
+  cleanup:
+    name: Delete temporary environment
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.action == 'closed' ||
+      github.event_name == 'workflow_dispatch' &&
+      inputs.action == 'cleanup'
+
+    runs-on: ubuntu-latest
+
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
+
+    steps:
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AKS_AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AKS_AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AKS_AZURE_SUBSCRIPTION_ID }}
+
+      - name: Get AKS credentials
+        run: |
+          az aks get-credentials \
+            --resource-group demo \
+            --name aks-pwc-project \
+            --overwrite-existing
+
+      - name: Delete temporary namespace
+        run: |
+          if [[ ! "$PR_NUMBER" =~ ^[0-9]+$ ]]; then
+            echo "Invalid PR number"
+            exit 1
+          fi
+
+          kubectl delete namespace "pr-$PR_NUMBER" \
+            --ignore-not-found=true \
+            --wait=true
