@@ -3,7 +3,6 @@ name: Gemini AI Failure Analysis
 on:
   workflow_run:
     workflows:
-      - "PWC Project CI/CD"
       - "Temporary PR Namespace"
     types:
       - completed
