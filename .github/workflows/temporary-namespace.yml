@@ -184,4 +184,3 @@ jobs:
           kubectl delete namespace "pr-$PR_NUMBER" \
             --ignore-not-found=true \
             --wait=true
-```
