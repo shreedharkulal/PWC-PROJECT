@@ -3,7 +3,8 @@ name: PWC Project CI/CD
 on:
   push:
     branches:
-      - 'feature/**'
+      - develop
+      - main
   workflow_dispatch:
 
 permissions:
@@ -196,7 +197,7 @@ jobs:
         needs.build-and-scan-images.result == 'success' &&
         (needs.sonar.result == 'success' || needs.sonar.result == 'skipped' || needs.sonar.result == 'failure') &&
         needs.trivy-fs.result == 'success' &&
-        github.ref == 'refs/heads/main'
+        (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
       }}
 
     runs-on: ubuntu-24.04
@@ -236,7 +237,7 @@ jobs:
         needs.build-and-scan-images.result == 'success' &&
         (needs.sonar.result == 'success' || needs.sonar.result == 'skipped' || needs.sonar.result == 'failure') &&
         needs.trivy-fs.result == 'success' &&
-        github.ref == 'refs/heads/main'
+        (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
       }}
 
     runs-on: ubuntu-24.04
@@ -270,15 +271,15 @@ jobs:
     name: Update Dev GitOps Values and trigger Argo CD
     needs: [push-frontend-to-acr, push-backend-to-acr]
 
-    if: ${{ github.ref == 'refs/heads/main' }}
+    if: ${{ github.ref == 'refs/heads/develop' }}
 
     runs-on: ubuntu-24.04
 
     steps:
-      - name: Checkout latest main
+      - name: Checkout latest develop
         uses: actions/checkout@v4
         with:
-          ref: main
+          ref: develop
           fetch-depth: 0
 
       - name: Install yq
@@ -314,12 +315,12 @@ jobs:
           fi
 
           git commit -m "chore(dev): deploy images ${IMAGE_TAG}"
-          git pull --rebase origin main
-          git push origin HEAD:main
+          git pull --rebase origin develop
+          git push origin HEAD:develop
 
   deploy-prod:
     name: Production Deployment (Approval Required)
-    needs: [deploy-dev]
+    needs: [push-frontend-to-acr, push-backend-to-acr]
 
     if: ${{ github.ref == 'refs/heads/main' }}
 
