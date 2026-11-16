@@ -4,6 +4,10 @@ on:
   push:
     branches:
       - main
+      - 'feature/**'
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -22,7 +26,7 @@ env:
   BACKEND_IMAGE: backends
 
 concurrency:
-  group: pwc-project-main-cicd
+  group: pwc-project-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -57,15 +61,13 @@ jobs:
   sonar:
     name: SonarQube Analysis
     needs: code-quality
-    continue-on-error: true
-
     if: >-
       ${{
         vars.SONAR_HOST_URL != '' &&
         vars.SONAR_PROJECT_KEY != '' &&
         vars.SONAR_ORGANIZATION != ''
       }}
-
+    continue-on-error: true
     runs-on: ubuntu-24.04
 
     steps:
@@ -125,34 +127,32 @@ jobs:
       - name: Setup Helm
         uses: azure/setup-helm@v4
 
-      - name: Lint Helm chart
+      - name: Lint Helm charts
         run: |
-          helm lint ./helm/pwc-project \
-            -f ./helm/pwc-project/values.yaml
+          helm lint ./helm/pwc-project -f ./helm/pwc-project/values.yaml
+          helm lint ./helm/pwc-project -f ./helm/pwc-project/values-dev.yaml
+          helm lint ./helm/pwc-project -f ./helm/pwc-project/values-prod.yaml
 
-          helm lint ./helm/pwc-project \
-            -f ./helm/pwc-project/values-dev.yaml
-
-          helm lint ./helm/pwc-project \
-            -f ./helm/pwc-project/values-prod.yaml
-
-      - name: Render Helm templates
+      - name: Validate Helm templates
         run: |
           helm template pwc-project ./helm/pwc-project \
-            -f ./helm/pwc-project/values.yaml \
-            > /tmp/pwc-render.yaml
+            -f ./helm/pwc-project/values.yaml > /tmp/pwc-render.yaml
 
           helm template pwc-project ./helm/pwc-project \
-            -f ./helm/pwc-project/values-dev.yaml \
-            > /tmp/pwc-render-dev.yaml
+            -f ./helm/pwc-project/values-dev.yaml > /tmp/pwc-render-dev.yaml
 
           helm template pwc-project ./helm/pwc-project \
-            -f ./helm/pwc-project/values-prod.yaml \
-            > /tmp/pwc-render-prod.yaml
+            -f ./helm/pwc-project/values-prod.yaml > /tmp/pwc-render-prod.yaml
 
   build-and-scan-images:
     name: Build and Scan Docker Images
     needs: [code-quality, helm-lint]
+    if: >-
+      ${{
+        github.event_name == 'push' &&
+        (github.ref == 'refs/heads/main' ||
+         github.ref == 'refs/heads/develop')
+      }}
     runs-on: ubuntu-24.04
 
     steps:
@@ -160,19 +160,12 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Build backend image
-        run: |
-          docker build \
-            -t "${BACKEND_IMAGE}:${IMAGE_TAG}" \
-            ./backend
+        run: docker build -t "${BACKEND_IMAGE}:${IMAGE_TAG}" ./backend
 
       - name: Build frontend image
-        run: |
-          docker build \
-            -t "${FRONTEND_IMAGE}:${IMAGE_TAG}" \
-            ./frontend
+        run: docker build -t "${FRONTEND_IMAGE}:${IMAGE_TAG}" ./frontend
 
       - name: Trivy backend image scan
-        continue-on-error: true
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: image
@@ -183,7 +176,6 @@ jobs:
           exit-code: "0"
 
       - name: Trivy frontend image scan
-        continue-on-error: true
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: image
@@ -194,18 +186,20 @@ jobs:
           exit-code: "0"
 
   push-frontend-to-acr:
-    name: Push Frontend Image to Frontend ACR
+    name: Push Frontend Image to ACR
     needs: [build-and-scan-images, sonar, trivy-fs]
-
     if: >-
       ${{
         !cancelled() &&
+        github.event_name == 'push' &&
+        (github.ref == 'refs/heads/main' ||
+         github.ref == 'refs/heads/develop') &&
         needs.build-and-scan-images.result == 'success' &&
-        (needs.sonar.result == 'success' || needs.sonar.result == 'skipped' || needs.sonar.result == 'failure') &&
-        needs.trivy-fs.result == 'success' &&
-        github.ref == 'refs/heads/main'
+        (needs.sonar.result == 'success' ||
+         needs.sonar.result == 'skipped' ||
+         needs.sonar.result == 'failure') &&
+        needs.trivy-fs.result == 'success'
       }}
-
     runs-on: ubuntu-24.04
 
     steps:
@@ -234,18 +228,20 @@ jobs:
             "${FRONTEND_ACR_LOGIN_SERVER}/${FRONTEND_IMAGE}:${IMAGE_TAG}"
 
   push-backend-to-acr:
-    name: Push Backend Image to Backend ACR
+    name: Push Backend Image to ACR
     needs: [build-and-scan-images, sonar, trivy-fs]
-
     if: >-
       ${{
         !cancelled() &&
+        github.event_name == 'push' &&
+        (github.ref == 'refs/heads/main' ||
+         github.ref == 'refs/heads/develop') &&
         needs.build-and-scan-images.result == 'success' &&
-        (needs.sonar.result == 'success' || needs.sonar.result == 'skipped' || needs.sonar.result == 'failure') &&
-        needs.trivy-fs.result == 'success' &&
-        github.ref == 'refs/heads/main'
+        (needs.sonar.result == 'success' ||
+         needs.sonar.result == 'skipped' ||
+         needs.sonar.result == 'failure') &&
+        needs.trivy-fs.result == 'success'
       }}
-
     runs-on: ubuntu-24.04
 
     steps:
@@ -274,18 +270,20 @@ jobs:
             "${BACKEND_ACR_LOGIN_SERVER}/${BACKEND_IMAGE}:${IMAGE_TAG}"
 
   deploy-dev:
-    name: Update Dev GitOps Values and trigger Argo CD
+    name: Update Dev GitOps Values
     needs: [push-frontend-to-acr, push-backend-to-acr]
-
-    if: ${{ github.ref == 'refs/heads/main' }}
-
+    if: >-
+      ${{
+        github.event_name == 'push' &&
+        github.ref == 'refs/heads/develop'
+      }}
     runs-on: ubuntu-24.04
 
     steps:
-      - name: Checkout latest main
+      - name: Checkout develop
         uses: actions/checkout@v4
         with:
-          ref: main
+          ref: develop
           fetch-depth: 0
 
       - name: Install yq
@@ -306,13 +304,12 @@ jobs:
             .backend.image.tag = strenv(IMAGE_TAG)
           ' helm/pwc-project/values-dev.yaml
 
-      - name: Commit and push dev values
+      - name: Commit and push Dev values
         env:
           IMAGE_TAG: ${{ github.sha }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
           git add helm/pwc-project/values-dev.yaml
 
           if git diff --cached --quiet; then
@@ -321,20 +318,21 @@ jobs:
           fi
 
           git commit -m "chore(dev): deploy images ${IMAGE_TAG}"
-          git pull --rebase origin main
-          git push origin HEAD:main
+          git push origin HEAD:develop
 
   deploy-prod:
-    name: Production Deployment (Approval Required)
-    needs: [deploy-dev]
-
-    if: ${{ github.ref == 'refs/heads/main' }}
-
+    name: Production Deployment
+    needs: [push-frontend-to-acr, push-backend-to-acr]
+    if: >-
+      ${{
+        github.event_name == 'push' &&
+        github.ref == 'refs/heads/main'
+      }}
     runs-on: ubuntu-24.04
     environment: production
 
     steps:
-      - name: Checkout latest main
+      - name: Checkout main
         uses: actions/checkout@v4
         with:
           ref: main
@@ -358,20 +356,18 @@ jobs:
             .backend.image.tag = strenv(IMAGE_TAG)
           ' helm/pwc-project/values-prod.yaml
 
-      - name: Commit and push production values
+      - name: Commit and push Production values
         env:
           IMAGE_TAG: ${{ github.sha }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
           git add helm/pwc-project/values-prod.yaml
 
           if git diff --cached --quiet; then
             echo "Production image tags are already up to date"
           else
             git commit -m "chore(prod): release images ${IMAGE_TAG}"
-            git pull --rebase origin main
             git push origin HEAD:main
           fi
 
@@ -389,8 +385,7 @@ jobs:
           cluster-name: aks-pwc-project
 
       - name: Create or update production Argo CD Application
-        run: |
-          kubectl apply -f argocd/prod.yaml
+        run: kubectl apply -f argocd/prod.yaml
 
       - name: Wait for Argo CD sync
         run: |
