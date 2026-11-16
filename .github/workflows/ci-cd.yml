@@ -193,11 +193,15 @@ jobs:
 
     if: >-
       ${{
+        always() &&
         !cancelled() &&
         needs.build-and-scan-images.result == 'success' &&
-        (needs.sonar.result == 'success' || needs.sonar.result == 'skipped' || needs.sonar.result == 'failure') &&
+        (needs.sonar.result == 'success' ||
+         needs.sonar.result == 'skipped' ||
+         needs.sonar.result == 'failure') &&
         needs.trivy-fs.result == 'success' &&
-        (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+        (github.ref == 'refs/heads/main' ||
+         github.ref == 'refs/heads/develop')
       }}
 
     runs-on: ubuntu-24.04
@@ -233,11 +237,15 @@ jobs:
 
     if: >-
       ${{
+        always() &&
         !cancelled() &&
         needs.build-and-scan-images.result == 'success' &&
-        (needs.sonar.result == 'success' || needs.sonar.result == 'skipped' || needs.sonar.result == 'failure') &&
+        (needs.sonar.result == 'success' ||
+         needs.sonar.result == 'skipped' ||
+         needs.sonar.result == 'failure') &&
         needs.trivy-fs.result == 'success' &&
-        (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+        (github.ref == 'refs/heads/main' ||
+         github.ref == 'refs/heads/develop')
       }}
 
     runs-on: ubuntu-24.04
@@ -271,7 +279,14 @@ jobs:
     name: Update Dev GitOps Values and trigger Argo CD
     needs: [push-frontend-to-acr, push-backend-to-acr]
 
-    if: ${{ github.ref == 'refs/heads/develop' }}
+    if: >-
+      ${{
+        always() &&
+        !cancelled() &&
+        github.ref == 'refs/heads/develop' &&
+        needs.push-frontend-to-acr.result == 'success' &&
+        needs.push-backend-to-acr.result == 'success'
+      }}
 
     runs-on: ubuntu-24.04
 
@@ -322,7 +337,14 @@ jobs:
     name: Production Deployment (Approval Required)
     needs: [push-frontend-to-acr, push-backend-to-acr]
 
-    if: ${{ github.ref == 'refs/heads/main' }}
+    if: >-
+      ${{
+        always() &&
+        !cancelled() &&
+        github.ref == 'refs/heads/main' &&
+        needs.push-frontend-to-acr.result == 'success' &&
+        needs.push-backend-to-acr.result == 'success'
+      }}
 
     runs-on: ubuntu-24.04
     environment: production
