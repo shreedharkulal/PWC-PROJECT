@@ -3,6 +3,8 @@ name: PWC Project CI/CD
 on:
   push:
     branches:
+      - 'feature/**'
+      - develop
       - 'develop/**'
       - main
   workflow_dispatch:
@@ -23,7 +25,7 @@ env:
   BACKEND_IMAGE: backends
 
 concurrency:
-  group: pwc-project-main-cicd
+  group: pwc-project-${{ github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -59,14 +61,12 @@ jobs:
     name: SonarQube Analysis
     needs: code-quality
     continue-on-error: true
-
     if: >-
       ${{
         vars.SONAR_HOST_URL != '' &&
         vars.SONAR_PROJECT_KEY != '' &&
         vars.SONAR_ORGANIZATION != ''
       }}
-
     runs-on: ubuntu-24.04
 
     steps:
@@ -130,7 +130,6 @@ jobs:
         run: |
           helm lint ./helm/pwc-project \
             -f ./helm/pwc-project/values-dev.yaml
-
           helm lint ./helm/pwc-project \
             -f ./helm/pwc-project/values-prod.yaml
 
@@ -139,7 +138,6 @@ jobs:
           helm template pwc-project ./helm/pwc-project \
             -f ./helm/pwc-project/values-dev.yaml \
             > /tmp/pwc-render-dev.yaml
-
           helm template pwc-project ./helm/pwc-project \
             -f ./helm/pwc-project/values-prod.yaml \
             > /tmp/pwc-render-prod.yaml
@@ -190,20 +188,18 @@ jobs:
   push-frontend-to-acr:
     name: Push Frontend Image to Frontend ACR
     needs: [build-and-scan-images, sonar, trivy-fs]
-
     if: >-
       ${{
-        always() &&
         !cancelled() &&
         needs.build-and-scan-images.result == 'success' &&
-        (needs.sonar.result == 'success' ||
-         needs.sonar.result == 'skipped' ||
-         needs.sonar.result == 'failure') &&
+        (needs.sonar.result == 'success' || needs.sonar.result == 'skipped' || needs.sonar.result == 'failure') &&
         needs.trivy-fs.result == 'success' &&
-        (github.ref == 'refs/heads/main' ||
-         github.ref == 'refs/heads/develop')
+        (
+          github.ref == 'refs/heads/main' ||
+          github.ref == 'refs/heads/develop' ||
+          startsWith(github.ref, 'refs/heads/develop/')
+        )
       }}
-
     runs-on: ubuntu-24.04
 
     steps:
@@ -234,20 +230,18 @@ jobs:
   push-backend-to-acr:
     name: Push Backend Image to Backend ACR
     needs: [build-and-scan-images, sonar, trivy-fs]
-
     if: >-
       ${{
-        always() &&
         !cancelled() &&
         needs.build-and-scan-images.result == 'success' &&
-        (needs.sonar.result == 'success' ||
-         needs.sonar.result == 'skipped' ||
-         needs.sonar.result == 'failure') &&
+        (needs.sonar.result == 'success' || needs.sonar.result == 'skipped' || needs.sonar.result == 'failure') &&
         needs.trivy-fs.result == 'success' &&
-        (github.ref == 'refs/heads/main' ||
-         github.ref == 'refs/heads/develop')
+        (
+          github.ref == 'refs/heads/main' ||
+          github.ref == 'refs/heads/develop' ||
+          startsWith(github.ref, 'refs/heads/develop/')
+        )
       }}
-
     runs-on: ubuntu-24.04
 
     steps:
@@ -276,76 +270,74 @@ jobs:
             "${BACKEND_ACR_LOGIN_SERVER}/${BACKEND_IMAGE}:${IMAGE_TAG}"
 
   deploy-dev:
-    name: Update Dev GitOps Values and trigger Argo CD
+    name: Deploy to Dev Namespace
     needs: [push-frontend-to-acr, push-backend-to-acr]
-
     if: >-
       ${{
-        always() &&
-        !cancelled() &&
-        github.ref == 'refs/heads/develop' &&
         needs.push-frontend-to-acr.result == 'success' &&
-        needs.push-backend-to-acr.result == 'success'
+        needs.push-backend-to-acr.result == 'success' &&
+        (
+          github.ref == 'refs/heads/develop' ||
+          startsWith(github.ref, 'refs/heads/develop/')
+        )
       }}
-
     runs-on: ubuntu-24.04
 
+    permissions:
+      contents: read
+      id-token: write
+
     steps:
-      - name: Checkout latest develop
+      - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Azure Login for AKS
+        uses: azure/login@v2
         with:
-          ref: develop
-          fetch-depth: 0
+          client-id: ${{ secrets.AKS_AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AKS_AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AKS_AZURE_SUBSCRIPTION_ID }}
 
-      - name: Install yq
+      - name: Set AKS context
+        uses: azure/aks-set-context@v4
+        with:
+          resource-group: demo
+          cluster-name: aks-pwc-project
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+
+      - name: Deploy application to Dev namespace
         run: |
-          sudo wget -q \
-            https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64 \
-            -O /usr/local/bin/yq
-          sudo chmod +x /usr/local/bin/yq
+          helm upgrade --install pwc-project-dev ./helm/pwc-project \
+            --namespace dev \
+            --create-namespace \
+            -f ./helm/pwc-project/values-dev.yaml \
+            --set frontend.image.repository="${FRONTEND_ACR_LOGIN_SERVER}/${FRONTEND_IMAGE}" \
+            --set frontend.image.tag="${IMAGE_TAG}" \
+            --set backend.image.repository="${BACKEND_ACR_LOGIN_SERVER}/${BACKEND_IMAGE}" \
+            --set backend.image.tag="${IMAGE_TAG}" \
+            --wait \
+            --timeout 10m
 
-      - name: Update Dev values
-        env:
-          IMAGE_TAG: ${{ github.sha }}
+      - name: Verify Dev deployment
         run: |
-          yq -i '
-            .frontend.image.repository = (strenv(FRONTEND_ACR_LOGIN_SERVER) + "/" + strenv(FRONTEND_IMAGE)) |
-            .frontend.image.tag = strenv(IMAGE_TAG) |
-            .backend.image.repository = (strenv(BACKEND_ACR_LOGIN_SERVER) + "/" + strenv(BACKEND_IMAGE)) |
-            .backend.image.tag = strenv(IMAGE_TAG)
-          ' helm/pwc-project/values-dev.yaml
-
-      - name: Commit and push dev values
-        env:
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          git add helm/pwc-project/values-dev.yaml
-
-          if git diff --cached --quiet; then
-            echo "Dev image tags are already up to date"
-            exit 0
-          fi
-
-          git commit -m "chore(dev): deploy images ${IMAGE_TAG}"
-          git pull --rebase origin develop
-          git push origin HEAD:develop
+          kubectl get deployments -n dev
+          kubectl get pods,svc -n dev
+          kubectl get deployments -n dev -o name |
+          while read deployment; do
+            kubectl rollout status "$deployment" -n dev --timeout=300s
+          done
 
   deploy-prod:
     name: Production Deployment (Approval Required)
     needs: [push-frontend-to-acr, push-backend-to-acr]
-
     if: >-
       ${{
-        always() &&
-        !cancelled() &&
         github.ref == 'refs/heads/main' &&
         needs.push-frontend-to-acr.result == 'success' &&
         needs.push-backend-to-acr.result == 'success'
       }}
-
     runs-on: ubuntu-24.04
     environment: production
 
@@ -380,9 +372,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
           git add helm/pwc-project/values-prod.yaml
-
           if git diff --cached --quiet; then
             echo "Production image tags are already up to date"
           else
