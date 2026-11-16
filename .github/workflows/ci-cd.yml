@@ -3,7 +3,7 @@ name: PWC Project CI/CD
 on:
   push:
     branches:
-      - develop
+      - 'develop/**'
       - main
   workflow_dispatch:
 
