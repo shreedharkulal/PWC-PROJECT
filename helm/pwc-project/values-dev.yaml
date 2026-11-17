@@ -1,6 +1,6 @@
 frontend:
   replicaCount: 1
-  activeColor: blue
+  activeColor: green
   greenImageTag: ""
   image:
     repository: fronted.azurecr.io/pwc-project-frontend
@@ -15,7 +15,7 @@ frontend:
       memory: 256Mi
 backend:
   replicaCount: 1
-  activeColor: blue
+  activeColor: green
   greenImageTag: ""
   image:
     repository: backends.azurecr.io/backends
