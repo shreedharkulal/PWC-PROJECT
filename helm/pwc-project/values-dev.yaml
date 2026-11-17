@@ -4,7 +4,7 @@ frontend:
   greenImageTag: ""
   image:
     repository: fronted.azurecr.io/pwc-project-frontend
-    tag: "490df3ada5ca98d235e384f0b7bc21dec86a1f71"
+    tag: "c6338b9a6f41a98e97e6d78e110bf22f9f6fa756"
     pullPolicy: IfNotPresent
   resources:
     requests:
@@ -19,7 +19,7 @@ backend:
   greenImageTag: ""
   image:
     repository: backends.azurecr.io/backends
-    tag: "490df3ada5ca98d235e384f0b7bc21dec86a1f71"
+    tag: "c6338b9a6f41a98e97e6d78e110bf22f9f6fa756"
     pullPolicy: IfNotPresent
   resources:
     requests:
