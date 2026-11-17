@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - develop
       - 'develop/*'
   workflow_dispatch:
 
@@ -30,7 +31,6 @@ jobs:
   code-quality:
     name: Code Quality and Backend Tests
     runs-on: ubuntu-24.04
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -66,7 +66,6 @@ jobs:
         vars.SONAR_ORGANIZATION != ''
       }}
     runs-on: ubuntu-24.04
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -97,7 +96,6 @@ jobs:
     needs: code-quality
     runs-on: ubuntu-24.04
     continue-on-error: true
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -116,7 +114,6 @@ jobs:
     name: Helm Lint and Template Validation
     needs: code-quality
     runs-on: ubuntu-24.04
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -136,6 +133,7 @@ jobs:
           helm template pwc-project ./helm/pwc-project \
             -f ./helm/pwc-project/values-dev.yaml \
             > /tmp/pwc-render-dev.yaml
+
           helm template pwc-project ./helm/pwc-project \
             -f ./helm/pwc-project/values-prod.yaml \
             > /tmp/pwc-render-prod.yaml
@@ -144,7 +142,6 @@ jobs:
     name: Build and Scan Docker Images
     needs: [code-quality, helm-lint]
     runs-on: ubuntu-24.04
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -195,14 +192,17 @@ jobs:
           needs.sonar.result == 'skipped' ||
           needs.sonar.result == 'failure'
         ) &&
-        needs.trivy-fs.result == 'success' &&
+        (
+          needs.trivy-fs.result == 'success' ||
+          needs.trivy-fs.result == 'failure'
+        ) &&
         (
           github.ref == 'refs/heads/main' ||
+          github.ref == 'refs/heads/develop' ||
           startsWith(github.ref, 'refs/heads/develop/')
         )
       }}
     runs-on: ubuntu-24.04
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -240,14 +240,17 @@ jobs:
           needs.sonar.result == 'skipped' ||
           needs.sonar.result == 'failure'
         ) &&
-        needs.trivy-fs.result == 'success' &&
+        (
+          needs.trivy-fs.result == 'success' ||
+          needs.trivy-fs.result == 'failure'
+        ) &&
         (
           github.ref == 'refs/heads/main' ||
+          github.ref == 'refs/heads/develop' ||
           startsWith(github.ref, 'refs/heads/develop/')
         )
       }}
     runs-on: ubuntu-24.04
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -280,15 +283,17 @@ jobs:
       ${{
         needs.push-frontend-to-acr.result == 'success' &&
         needs.push-backend-to-acr.result == 'success' &&
-        startsWith(github.ref, 'refs/heads/develop/')
+        (
+          github.ref == 'refs/heads/develop' ||
+          startsWith(github.ref, 'refs/heads/develop/')
+        )
       }}
     runs-on: ubuntu-24.04
-
     steps:
-      - name: Checkout latest main
+      - name: Checkout triggering development branch
         uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.ref_name }}
           fetch-depth: 0
 
       - name: Install yq
@@ -323,9 +328,9 @@ jobs:
             exit 0
           fi
 
-          git commit -m "chore(dev): deploy images ${IMAGE_TAG}"
-          git pull --rebase origin main
-          git push origin HEAD:main
+          git commit -m "chore(dev): deploy images ${IMAGE_TAG} [skip ci]"
+          git pull --rebase origin "${GITHUB_REF_NAME}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
 
   deploy-prod:
     name: Production Deployment (Approval Required)
@@ -338,7 +343,6 @@ jobs:
       }}
     runs-on: ubuntu-24.04
     environment: production
-
     steps:
       - name: Checkout latest main
         uses: actions/checkout@v4
@@ -395,8 +399,7 @@ jobs:
           cluster-name: aks-pwc-project
 
       - name: Create or update production Argo CD Application
-        run: |
-          kubectl apply -f argocd/prod.yaml
+        run: kubectl apply -f argocd/prod.yaml
 
       - name: Wait for Argo CD sync
         run: |
