@@ -3,15 +3,17 @@ kind: Application
 metadata:
   name: pwc-project-dev
   namespace: argocd
+
 spec:
   project: default
 
   source:
     repoURL: https://github.com/shreedharkulal/PWC-PROJECT.git
-    targetRevision: main
+    targetRevision: develop/deployment-stat
     path: helm/pwc-project
     helm:
       valueFiles:
+        - values.yaml
         - values-dev.yaml
 
   destination:
