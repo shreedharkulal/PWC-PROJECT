@@ -1,0 +1,93 @@
+name: Database Deployment
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: database-deploy-dev
+  cancel-in-progress: false
+
+jobs:
+  migrate-dev:
+    name: Migrate Dev PostgreSQL
+    runs-on: ubuntu-latest
+    environment: dev
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Validate Migration Files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -d database/migrations
+
+          if ! compgen -G "database/migrations/V*__*.sql" > /dev/null; then
+            echo "No Flyway migration files found."
+            exit 1
+          fi
+
+          echo "Migration files:"
+          ls -1 database/migrations/V*__*.sql
+
+      - name: Azure Login using OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Get AKS Credentials
+        shell: bash
+        run: |
+          az aks get-credentials \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --name "${{ vars.AKS_CLUSTER_NAME }}" \
+            --overwrite-existing
+
+      - name: Verify Kubernetes Access
+        run: |
+          kubectl get namespace dev
+          kubectl get service pwc-project-dev-db -n dev
+
+      - name: Upload Migration Files
+        shell: bash
+        run: |
+          kubectl create configmap database-migrations \
+            --namespace dev \
+            --from-file=database/migrations/ \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Start Flyway Migration Job
+        shell: bash
+        run: |
+          kubectl delete job database-migration \
+            -n dev --ignore-not-found --wait=true
+
+          kubectl apply -f k8s/database-migration-job.yaml
+
+      - name: Wait for Migration Result
+        shell: bash
+        run: |
+          if kubectl wait \
+            --for=condition=complete \
+            job/database-migration \
+            -n dev \
+            --timeout=300s; then
+            echo "Database migrations completed successfully."
+          else
+            echo "Database migration failed or timed out."
+            kubectl logs job/database-migration -n dev || true
+            exit 1
+          fi
+
+      - name: Show Migration Logs
+        if: always()
+        run: |
+          kubectl logs job/database-migration -n dev || true
