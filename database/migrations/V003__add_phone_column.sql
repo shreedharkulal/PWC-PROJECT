@@ -1,0 +1,2 @@
+ALTER TABLE demo_records
+ADD COLUMN phone VARCHAR(20);
