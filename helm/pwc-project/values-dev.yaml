@@ -11,6 +11,7 @@ frontend:
     limits:
       cpu: 500m
       memory: 256Mi
+
 backend:
   replicaCount: 1
   image:
@@ -24,10 +25,12 @@ backend:
     limits:
       cpu: 500m
       memory: 256Mi
+
 keyVault:
   enabled: true
   secretProviderClass: pwc-demo-keyvault
   mountPath: /mnt/secrets-store
+
 database:
   enabled: true
   image:
@@ -48,3 +51,125 @@ database:
     limits:
       cpu: 500m
       memory: 512Mi
+
+microservices:
+  user-service:
+    enabled: true
+    replicaCount: 1
+    image:
+      repository: nginx
+      tag: "1.28"
+      pullPolicy: IfNotPresent
+    service:
+      port: 80
+      targetPort: 80
+
+  product-service:
+    enabled: true
+    replicaCount: 1
+    image:
+      repository: nginx
+      tag: "1.28"
+      pullPolicy: IfNotPresent
+    service:
+      port: 80
+      targetPort: 80
+
+  inventory-service:
+    enabled: true
+    replicaCount: 1
+    image:
+      repository: nginx
+      tag: "1.28"
+      pullPolicy: IfNotPresent
+    service:
+      port: 80
+      targetPort: 80
+
+  cart-service:
+    enabled: true
+    replicaCount: 1
+    image:
+      repository: nginx
+      tag: "1.28"
+      pullPolicy: IfNotPresent
+    service:
+      port: 80
+      targetPort: 80
+
+  payment-service:
+    enabled: true
+    replicaCount: 1
+    image:
+      repository: nginx
+      tag: "1.28"
+      pullPolicy: IfNotPresent
+    service:
+      port: 80
+      targetPort: 80
+
+  order-service:
+    enabled: true
+    replicaCount: 1
+    image:
+      repository: nginx
+      tag: "1.28"
+      pullPolicy: IfNotPresent
+    service:
+      port: 80
+      targetPort: 80
+
+  shipping-service:
+    enabled: true
+    replicaCount: 1
+    image:
+      repository: nginx
+      tag: "1.28"
+      pullPolicy: IfNotPresent
+    service:
+      port: 80
+      targetPort: 80
+
+  notification-service:
+    enabled: true
+    replicaCount: 1
+    image:
+      repository: nginx
+      tag: "1.28"
+      pullPolicy: IfNotPresent
+    service:
+      port: 80
+      targetPort: 80
+
+  review-service:
+    enabled: true
+    replicaCount: 1
+    image:
+      repository: nginx
+      tag: "1.28"
+      pullPolicy: IfNotPresent
+    service:
+      port: 80
+      targetPort: 80
+
+  reporting-service:
+    enabled: true
+    replicaCount: 1
+    image:
+      repository: nginx
+      tag: "1.28"
+      pullPolicy: IfNotPresent
+    service:
+      port: 80
+      targetPort: 80
+
+  api-gateway:
+    enabled: true
+    replicaCount: 1
+    image:
+      repository: nginx
+      tag: "1.28"
+      pullPolicy: IfNotPresent
+    service:
+      port: 80
+      targetPort: 80

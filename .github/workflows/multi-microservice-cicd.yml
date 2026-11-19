@@ -1,0 +1,255 @@
+name: PWC Multi-Microservice CI/CD
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write
+
+env:
+  IMAGE_TAG: ${{ github.sha }}
+  BACKEND_ACR_NAME: backends
+  BACKEND_ACR_LOGIN_SERVER: backends.azurecr.io
+  SERVICE_ROOT: services
+
+concurrency:
+  group: pwc-microservices-cicd
+  cancel-in-progress: false
+
+jobs:
+  helm-lint:
+    name: Helm Lint and Template Validation
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+
+      - name: Lint development chart
+        run: |
+          helm lint ./helm/pwc-project \
+            -f ./helm/pwc-project/values-dev.yaml
+
+      - name: Lint production chart
+        run: |
+          helm lint ./helm/pwc-project \
+            -f ./helm/pwc-project/values-prod.yaml
+
+      - name: Render development chart
+        run: |
+          helm template pwc-project ./helm/pwc-project \
+            -f ./helm/pwc-project/values-dev.yaml \
+            > /tmp/render-dev.yaml
+
+      - name: Render production chart
+        run: |
+          helm template pwc-project ./helm/pwc-project \
+            -f ./helm/pwc-project/values-prod.yaml \
+            > /tmp/render-prod.yaml
+
+  build-and-push:
+    name: Build and Push ${{ matrix.service }}
+    needs: helm-lint
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+
+    strategy:
+      fail-fast: true
+      max-parallel: 4
+      matrix:
+        service:
+          - user-service
+          - product-service
+          - inventory-service
+          - cart-service
+          - payment-service
+          - order-service
+          - shipping-service
+          - notification-service
+          - review-service
+          - reporting-service
+          - api-gateway
+          - frontend-service
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate Dockerfile
+        run: |
+          test -f "${SERVICE_ROOT}/${{ matrix.service }}/Dockerfile" || {
+            echo "Missing Dockerfile for ${{ matrix.service }}"
+            exit 1
+          }
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.BACKEND_AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.BACKEND_AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.BACKEND_AZURE_SUBSCRIPTION_ID }}
+
+      - name: Login to Backend ACR
+        run: |
+          az acr login --name "$BACKEND_ACR_NAME"
+
+      - name: Build microservice image
+        run: |
+          docker build \
+            -t "${BACKEND_ACR_LOGIN_SERVER}/${{ matrix.service }}:${IMAGE_TAG}" \
+            "${SERVICE_ROOT}/${{ matrix.service }}"
+
+      - name: Trivy image scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        continue-on-error: true
+        with:
+          scan-type: image
+          image-ref: backends.azurecr.io/${{ matrix.service }}:${{ github.sha }}
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "0"
+
+      - name: Push microservice image
+        run: |
+          docker push \
+            "${BACKEND_ACR_LOGIN_SERVER}/${{ matrix.service }}:${IMAGE_TAG}"
+
+  update-dev:
+    name: Update Dev Helm Values
+    needs: build-and-push
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout latest main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Install yq
+        run: |
+          sudo wget -q \
+            https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64 \
+            -O /usr/local/bin/yq
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Update dev microservice image tags
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          services=(
+            user-service
+            product-service
+            inventory-service
+            cart-service
+            payment-service
+            order-service
+            shipping-service
+            notification-service
+            review-service
+            reporting-service
+            api-gateway
+            frontend-service
+          )
+
+          for service in "${services[@]}"; do
+            SERVICE="$service" yq -i '
+              .microservices[strenv(SERVICE)].image.repository =
+                ("backends.azurecr.io/" + strenv(SERVICE)) |
+              .microservices[strenv(SERVICE)].image.tag =
+                strenv(IMAGE_TAG)
+            ' helm/pwc-project/values-dev.yaml
+          done
+
+      - name: Commit and push dev values
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add helm/pwc-project/values-dev.yaml
+
+          if git diff --cached --quiet; then
+            echo "Dev values already up to date"
+            exit 0
+          fi
+
+          git commit -m "chore(dev): update microservice images ${IMAGE_TAG}"
+          git pull --rebase origin main
+          git push origin HEAD:main
+
+  update-prod:
+    name: Update Production Helm Values
+    needs: update-dev
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    environment: production
+
+    steps:
+      - name: Checkout latest main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Install yq
+        run: |
+          sudo wget -q \
+            https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64 \
+            -O /usr/local/bin/yq
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Update production microservice image tags
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          services=(
+            user-service
+            product-service
+            inventory-service
+            cart-service
+            payment-service
+            order-service
+            shipping-service
+            notification-service
+            review-service
+            reporting-service
+            api-gateway
+            frontend-service
+          )
+
+          for service in "${services[@]}"; do
+            SERVICE="$service" yq -i '
+              .microservices[strenv(SERVICE)].image.repository =
+                ("backends.azurecr.io/" + strenv(SERVICE)) |
+              .microservices[strenv(SERVICE)].image.tag =
+                strenv(IMAGE_TAG)
+            ' helm/pwc-project/values-prod.yaml
+          done
+
+      - name: Commit and push production values
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add helm/pwc-project/values-prod.yaml
+
+          if git diff --cached --quiet; then
+            echo "Production values already up to date"
+            exit 0
+          fi
+
+          git commit -m "chore(prod): release microservices ${IMAGE_TAG}"
+          git pull --rebase origin main
+          git push origin HEAD:main
