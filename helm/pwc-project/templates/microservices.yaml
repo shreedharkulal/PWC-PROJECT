@@ -1,0 +1,50 @@
+{{- range $name, $config := .Values.microservices }}
+{{- if $config.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ printf "%s-%s" $.Release.Name $name | trunc 63 | trimSuffix "-" }}
+  labels:
+    app.kubernetes.io/name: {{ $name | quote }}
+    app.kubernetes.io/instance: {{ $.Release.Name | quote }}
+spec:
+  replicas: {{ $config.replicaCount | default 1 }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $name | quote }}
+      app.kubernetes.io/instance: {{ $.Release.Name | quote }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ $name | quote }}
+        app.kubernetes.io/instance: {{ $.Release.Name | quote }}
+    spec:
+      containers:
+        - name: {{ $name | replace "_" "-" | quote }}
+          image: "{{ $config.image.repository }}:{{ $config.image.tag }}"
+          imagePullPolicy: {{ $config.image.pullPolicy | default "IfNotPresent" }}
+          ports:
+            - name: http
+              containerPort: {{ $config.service.targetPort | default 80 }}
+              protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ printf "%s-%s" $.Release.Name $name | trunc 63 | trimSuffix "-" }}
+  labels:
+    app.kubernetes.io/name: {{ $name | quote }}
+    app.kubernetes.io/instance: {{ $.Release.Name | quote }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: {{ $config.service.port | default 80 }}
+      targetPort: {{ $config.service.targetPort | default 80 }}
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: {{ $name | quote }}
+    app.kubernetes.io/instance: {{ $.Release.Name | quote }}
+{{- end }}
+{{- end }}
