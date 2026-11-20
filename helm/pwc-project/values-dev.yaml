@@ -11,6 +11,7 @@ frontend:
     limits:
       cpu: 500m
       memory: 256Mi
+
 backend:
   replicaCount: 1
   image:
@@ -24,10 +25,12 @@ backend:
     limits:
       cpu: 500m
       memory: 256Mi
+
 keyVault:
   enabled: true
   secretProviderClass: pwc-demo-keyvault
   mountPath: /mnt/secrets-store
+
 database:
   enabled: true
   image:
@@ -48,9 +51,12 @@ database:
     limits:
       cpu: 500m
       memory: 512Mi
+
 microservices:
+  # Wave 1 - foundational services
   user-service:
     enabled: true
+    syncWave: 1
     replicaCount: 1
     image:
       repository: nginx
@@ -59,8 +65,10 @@ microservices:
     service:
       port: 80
       targetPort: 80
+
   product-service:
     enabled: true
+    syncWave: 1
     replicaCount: 1
     image:
       repository: nginx
@@ -69,8 +77,11 @@ microservices:
     service:
       port: 80
       targetPort: 80
+
+  # Wave 2 - supporting services
   inventory-service:
     enabled: true
+    syncWave: 2
     replicaCount: 1
     image:
       repository: nginx
@@ -79,58 +90,10 @@ microservices:
     service:
       port: 80
       targetPort: 80
-  cart-service:
-    enabled: true
-    replicaCount: 1
-    image:
-      repository: nginx
-      tag: "1.28"
-      pullPolicy: IfNotPresent
-    service:
-      port: 80
-      targetPort: 80
-  payment-service:
-    enabled: true
-    replicaCount: 1
-    image:
-      repository: nginx
-      tag: "1.28"
-      pullPolicy: IfNotPresent
-    service:
-      port: 80
-      targetPort: 80
-  order-service:
-    enabled: true
-    replicaCount: 1
-    image:
-      repository: nginx
-      tag: "1.28"
-      pullPolicy: IfNotPresent
-    service:
-      port: 80
-      targetPort: 80
-  shipping-service:
-    enabled: true
-    replicaCount: 1
-    image:
-      repository: nginx
-      tag: "1.28"
-      pullPolicy: IfNotPresent
-    service:
-      port: 80
-      targetPort: 80
-  notification-service:
-    enabled: true
-    replicaCount: 1
-    image:
-      repository: nginx
-      tag: "1.28"
-      pullPolicy: IfNotPresent
-    service:
-      port: 80
-      targetPort: 80
+
   review-service:
     enabled: true
+    syncWave: 2
     replicaCount: 1
     image:
       repository: nginx
@@ -139,8 +102,10 @@ microservices:
     service:
       port: 80
       targetPort: 80
+
   reporting-service:
     enabled: true
+    syncWave: 2
     replicaCount: 1
     image:
       repository: nginx
@@ -149,8 +114,73 @@ microservices:
     service:
       port: 80
       targetPort: 80
+
+  # Wave 3 - transaction-related services
+  cart-service:
+    enabled: true
+    syncWave: 3
+    replicaCount: 1
+    image:
+      repository: nginx
+      tag: "1.28"
+      pullPolicy: IfNotPresent
+    service:
+      port: 80
+      targetPort: 80
+
+  payment-service:
+    enabled: true
+    syncWave: 3
+    replicaCount: 1
+    image:
+      repository: nginx
+      tag: "1.28"
+      pullPolicy: IfNotPresent
+    service:
+      port: 80
+      targetPort: 80
+
+  order-service:
+    enabled: true
+    syncWave: 3
+    replicaCount: 1
+    image:
+      repository: nginx
+      tag: "1.28"
+      pullPolicy: IfNotPresent
+    service:
+      port: 80
+      targetPort: 80
+
+  # Wave 4 - post-transaction services
+  shipping-service:
+    enabled: true
+    syncWave: 4
+    replicaCount: 1
+    image:
+      repository: nginx
+      tag: "1.28"
+      pullPolicy: IfNotPresent
+    service:
+      port: 80
+      targetPort: 80
+
+  notification-service:
+    enabled: true
+    syncWave: 4
+    replicaCount: 1
+    image:
+      repository: nginx
+      tag: "1.28"
+      pullPolicy: IfNotPresent
+    service:
+      port: 80
+      targetPort: 80
+
+  # Wave 5 - API entry point
   api-gateway:
     enabled: true
+    syncWave: 5
     replicaCount: 1
     image:
       repository: nginx
