@@ -65,10 +65,11 @@ jobs:
 
           annotation = "argocd.argoproj.io/sync-wave"
 
-          # Sync waves are not required for frontend or backend Services.
           excluded_services = {
               "pwc-project-backend",
               "pwc-project-frontend",
+              "pwc-project-dev-db",
+              "pwc-project-prod-db",
           }
 
           for file in files:
@@ -80,16 +81,16 @@ jobs:
                           continue
 
                       kind = resource.get("kind")
+                      name = (resource.get("metadata") or {}).get("name", "")
+
                       if kind not in ("Deployment", "Service"):
                           continue
 
-                      metadata = resource.get("metadata", {})
-                      name = metadata.get("name", "")
-                      annotations = metadata.get("annotations") or {}
-
-                      # Ignore frontend and backend Services.
                       if kind == "Service" and name in excluded_services:
                           continue
+
+                      metadata = resource.get("metadata") or {}
+                      annotations = metadata.get("annotations") or {}
 
                       if annotation not in annotations:
                           raise SystemExit(
@@ -149,9 +150,7 @@ jobs:
             --timeout=600s
 
       - name: Show Dev status
-        run: |
-          kubectl get application pwc-project-dev \
-            --namespace argocd
+        run: kubectl get application pwc-project-dev --namespace argocd
 
   deploy-prod:
     name: Deploy Prod Through Argo CD
@@ -186,7 +185,7 @@ jobs:
           kubectl wait \
             --namespace argocd \
             --for=jsonpath='{.status.sync.status}'=Synced \
-            application/pwc-project-dev \
+            application/pwc-project-prod \
             --timeout=600s
 
       - name: Wait for Prod to become Healthy
@@ -194,10 +193,8 @@ jobs:
           kubectl wait \
             --namespace argocd \
             --for=jsonpath='{.status.health.status}'=Healthy \
-            application/pwc-project-dev \
+            application/pwc-project-prod \
             --timeout=600s
 
       - name: Show Prod status
-        run: |
-          kubectl get application pwc-project-prod \
-            --namespace argocd
+        run: kubectl get application pwc-project-prod --namespace argocd
