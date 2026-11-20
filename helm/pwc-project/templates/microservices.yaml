@@ -5,6 +5,8 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ printf "%s-%s" $.Release.Name $name | trunc 63 | trimSuffix "-" }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ $config.syncWave | default 1 | quote }}
   labels:
     app.kubernetes.io/name: {{ $name | quote }}
     app.kubernetes.io/instance: {{ $.Release.Name | quote }}
@@ -28,11 +30,14 @@ spec:
             - name: http
               containerPort: {{ $config.service.targetPort | default 80 }}
               protocol: TCP
+
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: {{ printf "%s-%s" $.Release.Name $name | trunc 63 | trimSuffix "-" }}
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ $config.syncWave | default 1 | quote }}
   labels:
     app.kubernetes.io/name: {{ $name | quote }}
     app.kubernetes.io/instance: {{ $.Release.Name | quote }}
