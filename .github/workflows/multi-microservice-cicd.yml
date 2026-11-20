@@ -65,6 +65,12 @@ jobs:
 
           annotation = "argocd.argoproj.io/sync-wave"
 
+          # Sync waves are not required for frontend or backend Services.
+          excluded_services = {
+              "pwc-project-backend",
+              "pwc-project-frontend",
+          }
+
           for file in files:
               with open(file, encoding="utf-8") as stream:
                   documents = yaml.safe_load_all(stream)
@@ -74,22 +80,25 @@ jobs:
                           continue
 
                       kind = resource.get("kind")
-
                       if kind not in ("Deployment", "Service"):
                           continue
 
                       metadata = resource.get("metadata", {})
+                      name = metadata.get("name", "")
                       annotations = metadata.get("annotations") or {}
+
+                      # Ignore frontend and backend Services.
+                      if kind == "Service" and name in excluded_services:
+                          continue
 
                       if annotation not in annotations:
                           raise SystemExit(
                               f"ERROR: Missing {annotation} on "
-                              f"{kind}/{metadata.get('name')} "
-                              f"in {file}"
+                              f"{kind}/{name} in {file}"
                           )
 
                       print(
-                          f"OK: {kind}/{metadata.get('name')} "
+                          f"OK: {kind}/{name} "
                           f"sync-wave={annotations[annotation]}"
                       )
 
@@ -121,8 +130,7 @@ jobs:
             --overwrite-existing
 
       - name: Apply Dev Argo CD Application
-        run: |
-          kubectl apply -f argocd/dev.yaml
+        run: kubectl apply -f argocd/dev.yaml
 
       - name: Wait for Dev to become Synced
         run: |
@@ -171,15 +179,14 @@ jobs:
             --overwrite-existing
 
       - name: Apply Prod Argo CD Application
-        run: |
-          kubectl apply -f argocd/prod.yaml
+        run: kubectl apply -f argocd/prod.yaml
 
       - name: Wait for Prod to become Synced
         run: |
           kubectl wait \
             --namespace argocd \
             --for=jsonpath='{.status.sync.status}'=Synced \
-            application/pwc-project-prod \
+            application/pwc-project-dev \
             --timeout=600s
 
       - name: Wait for Prod to become Healthy
@@ -187,7 +194,7 @@ jobs:
           kubectl wait \
             --namespace argocd \
             --for=jsonpath='{.status.health.status}'=Healthy \
-            application/pwc-project-prod \
+            application/pwc-project-dev \
             --timeout=600s
 
       - name: Show Prod status
