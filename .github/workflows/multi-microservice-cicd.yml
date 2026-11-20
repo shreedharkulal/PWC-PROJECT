@@ -64,34 +64,30 @@ jobs:
           ]
 
           annotation = "argocd.argoproj.io/sync-wave"
-          excluded_database_services = {
+
+          excluded_resources = {
+              "pwc-project-backend",
+              "pwc-project-frontend",
               "pwc-project-dev-db",
               "pwc-project-prod-db",
           }
 
           for file in files:
               with open(file, encoding="utf-8") as stream:
-                  for resource in yaml.safe_load_all(stream):
+                  documents = yaml.safe_load_all(stream)
+
+                  for resource in documents:
                       if not resource:
                           continue
 
                       kind = resource.get("kind")
-                      metadata = resource.get("metadata") or {}
-                      name = metadata.get("name", "")
-                      normalized_name = name.lower()
-
                       if kind not in ("Deployment", "Service"):
                           continue
 
-                      # Backend and frontend resources do not use sync waves.
-                      if "backend" in normalized_name or "frontend" in normalized_name:
-                          continue
+                      metadata = resource.get("metadata") or {}
+                      name = metadata.get("name", "")
 
-                      # Database Services do not use sync waves.
-                      if (
-                          kind == "Service"
-                          and normalized_name in excluded_database_services
-                      ):
+                      if name in excluded_resources:
                           continue
 
                       annotations = metadata.get("annotations") or {}
