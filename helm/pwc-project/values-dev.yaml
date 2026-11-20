@@ -2,7 +2,7 @@ frontend:
   replicaCount: 1
   image:
     repository: fronted.azurecr.io/pwc-project-frontend
-    tag: "1e9dc55a6339b1033288151754388e5d03c952fa"
+    tag: "26b2f29dae5f2dbc637a1cae075c2c16d31087d9"
     pullPolicy: IfNotPresent
   resources:
     requests:
@@ -11,12 +11,11 @@ frontend:
     limits:
       cpu: 500m
       memory: 256Mi
-
 backend:
   replicaCount: 1
   image:
     repository: backends.azurecr.io/backends
-    tag: "1e9dc55a6339b1033288151754388e5d03c952fa"
+    tag: "26b2f29dae5f2dbc637a1cae075c2c16d31087d9"
     pullPolicy: IfNotPresent
   resources:
     requests:
@@ -25,12 +24,10 @@ backend:
     limits:
       cpu: 500m
       memory: 256Mi
-
 keyVault:
   enabled: true
   secretProviderClass: pwc-demo-keyvault
   mountPath: /mnt/secrets-store
-
 database:
   enabled: true
   image:
@@ -51,7 +48,6 @@ database:
     limits:
       cpu: 500m
       memory: 512Mi
-
 microservices:
   user-service:
     enabled: true
@@ -63,7 +59,6 @@ microservices:
     service:
       port: 80
       targetPort: 80
-
   product-service:
     enabled: true
     replicaCount: 1
@@ -74,7 +69,6 @@ microservices:
     service:
       port: 80
       targetPort: 80
-
   inventory-service:
     enabled: true
     replicaCount: 1
@@ -85,7 +79,6 @@ microservices:
     service:
       port: 80
       targetPort: 80
-
   cart-service:
     enabled: true
     replicaCount: 1
@@ -96,7 +89,6 @@ microservices:
     service:
       port: 80
       targetPort: 80
-
   payment-service:
     enabled: true
     replicaCount: 1
@@ -107,7 +99,6 @@ microservices:
     service:
       port: 80
       targetPort: 80
-
   order-service:
     enabled: true
     replicaCount: 1
@@ -118,7 +109,6 @@ microservices:
     service:
       port: 80
       targetPort: 80
-
   shipping-service:
     enabled: true
     replicaCount: 1
@@ -129,7 +119,6 @@ microservices:
     service:
       port: 80
       targetPort: 80
-
   notification-service:
     enabled: true
     replicaCount: 1
@@ -140,7 +129,6 @@ microservices:
     service:
       port: 80
       targetPort: 80
-
   review-service:
     enabled: true
     replicaCount: 1
@@ -151,7 +139,6 @@ microservices:
     service:
       port: 80
       targetPort: 80
-
   reporting-service:
     enabled: true
     replicaCount: 1
@@ -162,7 +149,6 @@ microservices:
     service:
       port: 80
       targetPort: 80
-
   api-gateway:
     enabled: true
     replicaCount: 1
